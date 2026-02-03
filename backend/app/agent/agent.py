@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Callable, Optional
 
-from .models import (
+from app.agent.models import (
     Assumptions,
     ConversationState,
     Phase,
@@ -11,9 +11,9 @@ from .models import (
     TravelConstraints,
     TravelPlan,
 )
-from .openai_client import OpenAIClient
-from .prompts import get_phase_prompt
-from .tools import TOOL_DEFINITIONS, execute_tool
+from app.agent.openai_client import OpenAIClient
+from app.agent.prompts import get_phase_prompt
+from app.agent.tools import TOOL_DEFINITIONS, execute_tool
 
 
 class TravelAgent:
@@ -274,34 +274,41 @@ List all assumptions explicitly."""
         return response
 
     def confirm_assumptions(
-        self, confirmed: bool, adjustments: Optional[str] = None
+        self, confirmed: bool, adjustments: Optional[str] = None, modifications: Optional[str] = None, additional_interests: Optional[str] = None
     ) -> str:
         """Handle user's confirmation of assumptions.
 
         Args:
             confirmed: Whether user confirms the assumptions.
-            adjustments: Any adjustments the user wants to make.
+            adjustments: Any adjustments the user wants to make (deprecated, use modifications).
+            modifications: Any modifications the user wants to make.
+            additional_interests: Additional interests to incorporate.
 
         Returns:
             Generated plan or request for clarification.
         """
         self.state.awaiting_confirmation = False
 
-        if not confirmed and adjustments:
-            # Store user interests/adjustments for later use
-            self.user_interests.append(adjustments)
-            if self.state.constraints:
-                self.state.constraints.interests.append(adjustments)
+        # Use modifications if provided, otherwise use adjustments for backward compatibility
+        user_modifications = modifications or adjustments
+        if additional_interests:
+            user_modifications = f"{user_modifications or ''}\nAdditional interests: {additional_interests}"
 
-            self.state.add_message("user", f"Adjustments needed: {adjustments}")
+        if not confirmed and user_modifications:
+            # Store user interests/adjustments for later use
+            self.user_interests.append(user_modifications)
+            if self.state.constraints:
+                self.state.constraints.interests.append(user_modifications)
+
+            self.state.add_message("user", f"Adjustments needed: {user_modifications}")
 
             # Search for events/activities based on user interests
-            search_results = self._search_for_interests(adjustments)
+            search_results = self._search_for_interests(user_modifications)
             if search_results:
                 self.search_results.append(search_results)
 
             # Re-generate assumptions with adjustments
-            return self._generate_assumptions_with_interests(adjustments)
+            return self._generate_assumptions_with_interests(user_modifications)
 
         self.state.phase = Phase.PLANNING
         return self._generate_plan()
