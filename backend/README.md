@@ -21,7 +21,7 @@ Create a `.env` file in this directory (or symlink to the root `.env`):
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/plandrift
 SECRET_KEY=your-random-secret-key
 ALGORITHM=HS256
-OPENAI_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-or-...
 FRONTEND_URL=http://localhost:3000
 ```
 

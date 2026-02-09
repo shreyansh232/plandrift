@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     )
 
     # --- External APIs ---
-    openai_api_key: Optional[str] = (
-        None  # API key for LLM (Optional allows app to start without it)
+    openrouter_api_key: Optional[str] = (
+        None  # API key for OpenRouter (Optional allows app to start without it)
     )
 
     # --- CORS ---

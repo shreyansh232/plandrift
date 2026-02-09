@@ -12,26 +12,33 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": """Search the web for current travel information. Use this tool when you need:
-- Current visa requirements or travel restrictions
-- Recent travel advisories or safety warnings
-- Current weather conditions or seasonal information
-- Recent infrastructure changes (road closures, new routes)
-- Current prices for flights, hotels, or activities
-- Latest reviews or recommendations
-- Permit requirements and booking procedures
-- Festival or event dates""",
+            "description": """Search the web for current travel information.
+
+Use this when you need:
+- Flight prices (search for "round trip flights <origin> to <dest> <month> <year> price")
+- Hotel/hostel prices (search for "<dest> hotel prices per night <month> <year>")
+- Activity costs, entry fees, transport costs
+- Visa requirements, travel advisories, weather
+- Event dates, ticket prices
+
+TIPS FOR BETTER PRICE RESULTS:
+- Include the currency (e.g. "INR", "USD", "JPY")
+- Include the month and year
+- Include "price" or "cost" in the query
+- Search for specific sites: "skyscanner", "booking.com", "google flights"
+- Example: "round trip flights Mumbai to Tokyo March 2026 price INR skyscanner"
+""",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search query. Be specific and include the destination/route and what information you need.",
+                        "description": "The search query. Be specific: include origin, destination, dates, currency, and 'price'.",
                     },
                     "num_results": {
                         "type": "integer",
-                        "description": "Number of results to return (default 5, max 10)",
-                        "default": 5,
+                        "description": "Number of results to return (default 8, max 10)",
+                        "default": 8,
                     },
                 },
                 "required": ["query"],
@@ -41,7 +48,7 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def web_search(query: str, num_results: int = 5) -> list[dict[str, str]]:
+def web_search(query: str, num_results: int = 8) -> list[dict[str, str]]:
     """Search the web using DuckDuckGo.
 
     Args:

@@ -38,6 +38,9 @@ class RiskAssessment(BaseModel):
         description="Risk from infrastructure and connectivity"
     )
     overall_feasible: bool = Field(description="Whether the trip is feasible overall")
+    friendly_summary: str = Field(
+        description="A short, conversational 2-4 sentence summary of the key things the traveler should know. Be direct and helpful, not robotic."
+    )
     warnings: list[str] = Field(
         default_factory=list, description="Specific warnings for the user"
     )
@@ -56,6 +59,33 @@ class ClarificationQuestions(BaseModel):
     )
 
 
+class InitialExtraction(BaseModel):
+    """Everything we can extract from the user's very first message."""
+
+    origin: Optional[str] = Field(
+        default=None, description="Starting location / traveling from"
+    )
+    destination: Optional[str] = Field(
+        default=None, description="Travel destination / traveling to"
+    )
+    month_or_season: Optional[str] = Field(
+        default=None, description="Month or season of travel if mentioned"
+    )
+    duration_days: Optional[int] = Field(
+        default=None, description="Trip duration in days if mentioned"
+    )
+    solo_or_group: Optional[str] = Field(
+        default=None, description="Solo or group travel if mentioned"
+    )
+    budget: Optional[str] = Field(
+        default=None, description="Budget level or amount if mentioned"
+    )
+    interests: list[str] = Field(
+        default_factory=list,
+        description="Any specific interests or activities mentioned",
+    )
+
+
 class TravelConstraints(BaseModel):
     """User's travel constraints extracted from clarification answers."""
 
@@ -71,9 +101,6 @@ class TravelConstraints(BaseModel):
         default=None, description="Solo or group travel"
     )
     budget: Optional[str] = Field(default=None, description="Budget level or range")
-    comfort_level: Optional[str] = Field(
-        default=None, description="Comfort with rough conditions: low/medium/high"
-    )
     interests: list[str] = Field(
         default_factory=list,
         description="Specific interests or activities the traveler wants (e.g., tech events, hiking, food tours)",
@@ -131,6 +158,10 @@ class DayPlan(BaseModel):
     notes: Optional[str] = Field(
         default=None, description="Additional notes or warnings"
     )
+    tips: list[str] = Field(
+        default_factory=list,
+        description="Practical tips for the day: money-saving hacks, faster travel alternatives, must-try food, offbeat/hidden-gem spots nearby, or important warnings",
+    )
 
 
 class BudgetBreakdown(BaseModel):
@@ -161,6 +192,10 @@ class TravelPlan(BaseModel):
     )
     budget_breakdown: Optional[BudgetBreakdown] = Field(
         default=None, description="Detailed budget breakdown for the trip"
+    )
+    general_tips: list[str] = Field(
+        default_factory=list,
+        description="General trip tips: visa info, SIM/connectivity, cultural etiquette, packing essentials, safety, money exchange tips, apps to download, etc.",
     )
 
 

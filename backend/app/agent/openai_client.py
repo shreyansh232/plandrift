@@ -1,4 +1,7 @@
-"""OpenAI API client wrapper with structured output support."""
+"""LLM API client wrapper with structured output support.
+
+Uses OpenRouter as the provider, which is OpenAI-compatible.
+"""
 
 import json
 import os
@@ -9,24 +12,34 @@ from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "google/gemini-3-flash-preview"
+
 
 class OpenAIClient:
-    """Wrapper for OpenAI API with structured output parsing."""
+    """Wrapper for OpenRouter (OpenAI-compatible) API with structured output parsing."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o"):
-        """Initialize the OpenAI client.
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = DEFAULT_MODEL,
+    ):
+        """Initialize the client.
 
         Args:
-            api_key: OpenAI API key. If not provided, uses OPENAI_API_KEY env var.
+            api_key: OpenRouter API key. If not provided, uses OPENROUTER_API_KEY env var.
             model: Model to use for completions.
         """
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError(
-                "OpenAI API key is required. Set OPENAI_API_KEY environment variable "
-                "or pass api_key parameter."
+                "OpenRouter API key is required. Set OPENROUTER_API_KEY environment "
+                "variable or pass api_key parameter."
             )
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = OpenAI(
+            api_key=self.api_key,
+            base_url=OPENROUTER_BASE_URL,
+        )
         self.model = model
 
     def chat(
@@ -54,6 +67,8 @@ class OpenAIClient:
             kwargs["max_tokens"] = max_tokens
 
         response = self.client.chat.completions.create(**kwargs)
+        if not response.choices:
+            raise ValueError("Empty response from API — model returned no choices.")
         return response.choices[0].message.content or ""
 
     def chat_with_tools(
@@ -88,6 +103,9 @@ class OpenAIClient:
                 tools=tools,
                 temperature=temperature,
             )
+
+            if not response.choices:
+                raise ValueError("Empty response from API — model returned no choices.")
 
             message = response.choices[0].message
 
@@ -129,33 +147,147 @@ class OpenAIClient:
             messages=messages,
             temperature=temperature,
         )
+        if not response.choices:
+            raise ValueError("Empty response from API — model returned no choices.")
         return response.choices[0].message.content or ""
+
+    def _build_example(self, schema: dict) -> dict:
+        """Build a minimal example object from a JSON schema."""
+        props = schema.get("properties", {})
+        defs = schema.get("$defs", {})
+        example: dict = {}
+
+        for name, prop in props.items():
+            example[name] = self._example_value(name, prop, defs)
+
+        return example
+
+    def _example_value(self, name: str, prop: dict, defs: dict) -> Any:
+        """Generate a placeholder value for a schema property."""
+        # Handle $ref
+        if "$ref" in prop:
+            ref_name = prop["$ref"].split("/")[-1]
+            if ref_name in defs:
+                ref_schema = defs[ref_name]
+                # Enum
+                if "enum" in ref_schema:
+                    return ref_schema["enum"][0]
+                return self._build_example(ref_schema)
+            return "..."
+
+        # Handle anyOf (Optional fields)
+        if "anyOf" in prop:
+            for option in prop["anyOf"]:
+                if option.get("type") != "null":
+                    return self._example_value(name, option, defs)
+            return None
+
+        t = prop.get("type", "string")
+        desc = prop.get("description", "")
+        if t == "string":
+            # Use description as hint if available
+            if desc:
+                return f"<{desc}>"
+            return f"<{name}>"
+        elif t == "integer":
+            return 0
+        elif t == "number":
+            return 0.0
+        elif t == "boolean":
+            return True
+        elif t == "array":
+            item_schema = prop.get("items", {"type": "string"})
+            return [self._example_value("item", item_schema, defs)]
+        elif t == "object":
+            return self._build_example(prop)
+        return "..."
 
     def chat_structured(
         self,
         messages: list[dict],
         response_format: Type[T],
         temperature: float = 0.7,
+        max_retries: int = 1,
     ) -> T:
         """Send a chat request and parse response into a Pydantic model.
 
-        Uses OpenAI's structured output feature for reliable parsing.
+        Shows the model an example of the expected JSON shape and asks it
+        to fill in real values. Works with any OpenAI-compatible provider.
+        Retries with error feedback if validation fails.
 
         Args:
             messages: List of message dicts with 'role' and 'content' keys.
             response_format: Pydantic model class for the response.
             temperature: Sampling temperature (0-2).
+            max_retries: Number of retries on validation failure.
 
         Returns:
             Parsed response as the specified Pydantic model.
         """
-        response = self.client.beta.chat.completions.parse(
-            model=self.model,
-            messages=messages,
-            response_format=response_format,
-            temperature=temperature,
+        schema = response_format.model_json_schema()
+        example = self._build_example(schema)
+
+        schema_instruction = (
+            "Respond with a JSON object using EXACTLY the structure below. "
+            "Fill in real values instead of placeholders.\n\n"
+            "CRITICAL: Every nested object MUST remain an object with its own keys. "
+            "Do NOT flatten objects into strings. For example, if the schema shows "
+            'an array of objects like [{"activity": "...", "cost_estimate": "..."}], '
+            "each element MUST be an object with those keys, NOT a plain string.\n\n"
+            f"Expected structure:\n{json.dumps(example, indent=2)}\n\n"
+            f"Full JSON schema for reference:\n{json.dumps(schema, indent=2)}\n\n"
+            "Return ONLY the JSON object. No markdown, no explanation."
         )
-        parsed = response.choices[0].message.parsed
-        if parsed is None:
-            raise ValueError("Failed to parse structured response from OpenAI")
-        return parsed
+
+        augmented_messages = messages.copy()
+        augmented_messages.append({
+            "role": "user",
+            "content": schema_instruction,
+        })
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1 + max_retries):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=augmented_messages,
+                response_format={"type": "json_object"},
+                temperature=temperature,
+            )
+
+            if not response.choices:
+                error_detail = (
+                    getattr(response, "error", None) or "No response from model"
+                )
+                raise ValueError(f"Empty response from API: {error_detail}")
+
+            content = response.choices[0].message.content or ""
+
+            try:
+                data = json.loads(content)
+                return response_format.model_validate(data)
+            except (json.JSONDecodeError, Exception) as e:
+                last_error = e
+                if attempt < max_retries:
+                    # Feed the error back to the model for a retry
+                    error_feedback = (
+                        f"Your previous JSON response had validation errors:\n"
+                        f"{str(e)[:1000]}\n\n"
+                        "Please fix these errors. Remember:\n"
+                        "- Array items that should be objects MUST be objects "
+                        "(with their own keys), NOT plain strings.\n"
+                        "- Follow the exact structure from the schema.\n\n"
+                        "Return ONLY the corrected JSON object."
+                    )
+                    augmented_messages.append({
+                        "role": "assistant",
+                        "content": content,
+                    })
+                    augmented_messages.append({
+                        "role": "user",
+                        "content": error_feedback,
+                    })
+
+        raise ValueError(
+            f"Failed to parse structured response after {1 + max_retries} "
+            f"attempt(s): {last_error}\nRaw content: {content[:500]}"
+        )

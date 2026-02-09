@@ -4,7 +4,6 @@ This module sets up the Authlib OAuth registry for Google OAuth 2.0/OpenID Conne
 """
 
 from authlib.integrations.starlette_client import OAuth
-from starlette.config import Config
 
 from app.config import get_settings
 
