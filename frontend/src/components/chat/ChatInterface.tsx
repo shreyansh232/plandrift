@@ -76,6 +76,7 @@ export function ChatInterface({
   const startedRef = useRef(false);
   const startInFlightRef = useRef(false);
   const initialMessageIdRef = useRef<string | null>(null);
+  const pendingPromptRef = useRef(initialPrompt);
   const storageKey = `plandrift_chat_${initialPrompt}`;
 
   const scrollToBottom = () => {
@@ -92,6 +93,10 @@ export function ChatInterface({
       inputRef.current?.focus();
     }
   }, [isLoading, nextAction]);
+
+  useEffect(() => {
+    pendingPromptRef.current = initialPrompt;
+  }, [initialPrompt]);
 
   // ---- helpers ----
 
@@ -262,8 +267,8 @@ export function ChatInterface({
 
   const doStart = useCallback(
     async (overridePrompt?: string, force = false) => {
+      if (startInFlightRef.current) return;
       if (!force && startedRef.current) return;
-      if (!force && startInFlightRef.current) return;
       startInFlightRef.current = true;
       startedRef.current = true;
       setIsLoading(true);
@@ -271,17 +276,18 @@ export function ChatInterface({
       setError(null);
 
       try {
-      const prompt = (overridePrompt || initialPrompt).trim();
-      if (!prompt) {
-        throw new Error("Please enter a trip request to get started.");
-      }
-      if (messages.length === 0) {
-        addMessage("user", prompt);
-      }
-      const stream = await startTripStream(prompt);
-      await consumeStream(stream, () => "text_input");
-    } catch (err) {
-      handleError(err);
+        const prompt = (overridePrompt || initialPrompt).trim();
+        if (!prompt) {
+          throw new Error("Please enter a trip request to get started.");
+        }
+        pendingPromptRef.current = prompt;
+        if (messages.length === 0) {
+          addMessage("user", prompt);
+        }
+        const stream = await startTripStream(prompt);
+        await consumeStream(stream, () => "text_input");
+      } catch (err) {
+        handleError(err);
       } finally {
         setIsLoading(false);
         startInFlightRef.current = false;
@@ -442,6 +448,15 @@ export function ChatInterface({
       hasHighRisk,
     });
     localStorage.setItem(storageKey, payload);
+    if (!tripId && messages.length) {
+      const userText = messages
+        .filter((msg) => msg.role === "user")
+        .map((msg) => msg.content)
+        .join("\n");
+      if (userText.trim()) {
+        pendingPromptRef.current = userText.trim();
+      }
+    }
   }, [messages, tripId, nextAction, hasHighRisk, storageKey]);
 
   useEffect(() => {
@@ -464,7 +479,42 @@ export function ChatInterface({
       case "text_input":
         // During clarification or general text input
         if (!tripId) {
-          await doStart(text);
+          const basePrompt = pendingPromptRef.current || initialPrompt;
+          const lastAssistant = [...messages]
+            .reverse()
+            .find((msg) => msg.role === "assistant");
+          const lastText = lastAssistant?.content.toLowerCase() || "";
+          const expectsOrigin =
+            lastText.includes("traveling from") ||
+            lastText.includes("travelling from") ||
+            lastText.includes("where you're traveling from");
+          const expectsDestination =
+            lastText.includes("where you want to go") ||
+            lastText.includes("destination");
+
+          const fromToMatch = text.match(/from\s+(.+?)\s+to\s+(.+)/i);
+          const toMatch = text.match(/(.+?)\s+to\s+(.+)/i);
+
+          let origin = fromToMatch?.[1]?.trim();
+          let destination = fromToMatch?.[2]?.trim();
+          if (!origin || !destination) {
+            origin = toMatch?.[1]?.trim();
+            destination = toMatch?.[2]?.trim();
+          }
+
+          if (expectsOrigin && !origin) origin = text;
+          if (expectsDestination && !destination) destination = text;
+
+          const mergedParts = [basePrompt];
+          if (origin) mergedParts.push(`Origin: ${origin}`);
+          if (destination) mergedParts.push(`Destination: ${destination}`);
+          if (!origin && !destination) {
+            mergedParts.push(`Additional details: ${text}`);
+          }
+
+          const mergedPrompt = mergedParts.join("\n").trim();
+          pendingPromptRef.current = mergedPrompt;
+          await doStart(mergedPrompt, true);
         } else {
           await doClarify(text);
         }
