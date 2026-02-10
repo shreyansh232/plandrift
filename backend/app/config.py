@@ -42,7 +42,10 @@ class Settings(BaseSettings):
     )
 
     # --- CORS ---
-    frontend_url: str = "http://localhost:3000"  # Allowed origin for browser requests
+    # Comma-separated list of allowed origins. If unset, falls back to frontend_url.
+    # Example: "https://yourapp.com,https://staging.yourapp.com"
+    frontend_urls: Optional[str] = None
+    frontend_url: str = "http://localhost:3000"  # Single allowed origin fallback
 
     # --- Configuration ---
     # Pydantic V2 configuration class

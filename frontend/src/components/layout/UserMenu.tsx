@@ -62,7 +62,7 @@ export function UserMenu({ user, loading, onSignOut }: UserMenuProps) {
         {showImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={user.picture_url}
+            src={user.picture_url ?? ""}
             alt={user.name || user.email}
             className="h-full w-full object-cover"
             referrerPolicy="no-referrer"

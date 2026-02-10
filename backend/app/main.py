@@ -24,8 +24,25 @@ app = FastAPI(
 #
 # WARNING: Never use allow_origins=["*"] with allow_credentials=True in production
 # as it allows any website to make authenticated requests to your API.
-if settings.frontend_url:
-    cors_origins = ["*"] if settings.debug else [settings.frontend_url]
+cors_origins: list[str] = []
+if settings.debug:
+    cors_origins = ["*"]
+else:
+    if settings.frontend_urls:
+        cors_origins = [
+            origin.strip()
+            for origin in settings.frontend_urls.split(",")
+            if origin.strip()
+        ]
+    elif settings.frontend_url:
+        cors_origins = [settings.frontend_url]
+
+    # Always allow local development clients to hit production backend.
+    for local_origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+        if local_origin not in cors_origins:
+            cors_origins.append(local_origin)
+
+if cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
