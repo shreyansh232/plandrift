@@ -114,8 +114,10 @@ async def google_login(request: Request) -> dict:
     Returns:
         dict: Contains 'authorization_url' and 'state' parameters
     """
-    # Generate redirect URI for callback
-    redirect_uri = request.url_for("google_callback")
+    # Generate redirect URI for callback (prefer explicit setting)
+    redirect_uri = settings.GOOGLE_REDIRECT_URI or request.url_for(
+        "google_callback"
+    )
 
     # Redirect to Google's authorization page
     return await oauth.google.authorize_redirect(request, redirect_uri)
