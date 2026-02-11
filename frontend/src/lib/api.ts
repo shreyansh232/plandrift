@@ -7,7 +7,7 @@
  */
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://plandrift.onrender.com";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_PREFIX = `${API_BASE}/api`;
 
 export function getGoogleLoginUrl(): string {

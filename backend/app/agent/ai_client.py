@@ -5,9 +5,10 @@ Uses OpenRouter as the provider, which is OpenAI-compatible.
 
 import json
 import os
+import time
 from typing import Any, Callable, Optional, Type, TypeVar
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -45,6 +46,19 @@ class AIClient:
         )
         self.model = model
 
+    def _create_completion_with_retry(self, **kwargs):
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                return self.client.chat.completions.create(**kwargs)
+            except RateLimitError as err:
+                last_error = err
+                # Exponential backoff for upstream rate limits.
+                time.sleep(1.5 * (2**attempt))
+        if last_error:
+            raise last_error
+        raise RateLimitError("Upstream rate limit")
+
     def chat(
         self,
         messages: list[dict],
@@ -69,7 +83,7 @@ class AIClient:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
 
-        response = self.client.chat.completions.create(**kwargs)
+        response = self._create_completion_with_retry(**kwargs)
         if not response.choices:
             raise ValueError("Empty response from API — model returned no choices.")
         return response.choices[0].message.content or ""
@@ -111,7 +125,7 @@ class AIClient:
         tool_calls_made = 0
 
         while tool_calls_made < max_tool_calls:
-            response = self.client.chat.completions.create(
+            response = self._create_completion_with_retry(
                 model=self.model,
                 messages=messages,
                 tools=tools,
@@ -156,7 +170,7 @@ class AIClient:
                 tool_calls_made += 1
 
         # If we hit max tool calls, get final response without tools
-        response = self.client.chat.completions.create(
+        response = self._create_completion_with_retry(
             model=self.model,
             messages=messages,
             temperature=temperature,
@@ -294,6 +308,16 @@ Conversation:
         schema = response_format.model_json_schema()
         example = self._build_example(schema) if include_example else None
 
+        example_block = (
+            "Expected structure:\n" + json.dumps(example, indent=2) + "\n\n"
+            if include_example
+            else ""
+        )
+        schema_block = (
+            "Full JSON schema for reference:\n" + json.dumps(schema, indent=2) + "\n\n"
+            if include_schema
+            else ""
+        )
         schema_instruction = (
             "Respond with a JSON object using EXACTLY the structure below. "
             "Fill in real values instead of placeholders.\n\n"
@@ -301,8 +325,7 @@ Conversation:
             "Do NOT flatten objects into strings. For example, if the schema shows "
             'an array of objects like [{"activity": "...", "cost_estimate": "..."}], '
             "each element MUST be an object with those keys, NOT a plain string.\n\n"
-            f"{'Expected structure:\\n' + json.dumps(example, indent=2) + '\\n\\n' if include_example else ''}"
-            f"{'Full JSON schema for reference:\\n' + json.dumps(schema, indent=2) + '\\n\\n' if include_schema else ''}"
+            f"{example_block}{schema_block}"
             "Return ONLY the JSON object. No markdown, no explanation."
         )
 
@@ -314,7 +337,7 @@ Conversation:
 
         last_error: Optional[Exception] = None
         for attempt in range(1 + max_retries):
-            response = self.client.chat.completions.create(
+            response = self._create_completion_with_retry(
                 model=self.model,
                 messages=augmented_messages,
                 response_format={"type": "json_object"},

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     GOOGLE_REDIRECT_URI: str = (
-        "https://plandrift.onrender.com/api/auth/google/callback"
+        "http://localhost:8000/api/auth/google/callback"
     )
 
     # --- Database ---
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed origins. If unset, falls back to frontend_url.
     # Example: "https://yourapp.com,https://staging.yourapp.com"
     frontend_urls: Optional[str] = None
-    frontend_url: str = "https://plandrift.vercel.app"  # Single allowed origin fallback
+    frontend_url: str = "http://localhost:3000"  # Single allowed origin fallback
 
     # --- Configuration ---
     # Pydantic V2 configuration class

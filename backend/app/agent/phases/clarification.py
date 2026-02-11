@@ -1,6 +1,7 @@
 """Clarification phase handler."""
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from app.agent.models import ConversationState, InitialExtraction, Phase, TravelConstraints
@@ -39,6 +40,9 @@ def handle_start(
 
     state.phase = Phase.CLARIFICATION
 
+    # Extract explicit origin/destination hints if provided.
+    parsed_origin, parsed_destination = _parse_origin_destination(user_prompt)
+
     # Extract everything we can from the initial prompt
     extraction_messages = [
         {
@@ -58,6 +62,11 @@ def handle_start(
         extraction_messages, InitialExtraction, temperature=0.1
     )
 
+    if parsed_origin and not extracted.origin:
+        extracted.origin = parsed_origin
+    if parsed_destination and not extracted.destination:
+        extracted.destination = parsed_destination
+
     # Check if origin or destination is missing
     if not extracted.origin or not extracted.destination:
         missing = []
@@ -70,7 +79,7 @@ def handle_start(
 
         state.add_message("user", user_prompt)
         state.add_message("assistant", response)
-        return response, None
+        return response, extracted
 
     # Both origin and destination present
     state.origin = extracted.origin
@@ -106,6 +115,38 @@ def handle_start(
 
     state.add_message("assistant", response)
     return response, extracted
+
+
+def _parse_origin_destination(text: str) -> tuple[str | None, str | None]:
+    """Parse explicit origin/destination hints from user input."""
+    origin = None
+    destination = None
+
+    origin_match = re.search(r"(?:^|\\n)\\s*origin\\s*:\\s*(.+)", text, re.I)
+    if origin_match:
+        origin = origin_match.group(1).strip().strip(".")
+
+    destination_match = re.search(
+        r"(?:^|\\n)\\s*destination\\s*:\\s*(.+)", text, re.I
+    )
+    if destination_match:
+        destination = destination_match.group(1).strip().strip(".")
+
+    from_to_match = re.search(
+        r"from\\s+([^\\n]+?)\\s+to\\s+([^\\n]+)", text, re.I
+    )
+    if from_to_match:
+        origin = origin or from_to_match.group(1).strip().strip(".")
+        destination = destination or from_to_match.group(2).strip().strip(".")
+
+    if not destination:
+        to_match = re.search(
+            r"(?:trip|travel|visit|going|plan)\\s+to\\s+([^\\n,.]+)", text, re.I
+        )
+        if to_match:
+            destination = to_match.group(1).strip().strip(".")
+
+    return origin, destination
 
 
 def process_clarification(

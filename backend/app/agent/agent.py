@@ -4,14 +4,8 @@ import logging
 from typing import Callable, Optional
 
 from app.agent.ai_client import AIClient, DEFAULT_MODEL
-from app.agent.models import ConversationState, Phase
-from app.agent.phases import (
-    assumptions,
-    clarification,
-    feasibility,
-    planning,
-    refinement,
-)
+from app.agent.graph import build_agent_graph
+from app.agent.models import ConversationState
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +35,25 @@ class TravelAgent:
         self._initial_extraction = None
         self.on_status = on_status
         self._last_status: Optional[str] = None
+        self._graph = build_agent_graph(self.client, self._handle_tool_call)
+
+    def _run_graph(self, action: str, payload: dict) -> dict:
+        state = {
+            "action": action,
+            "input": payload,
+            "agent_state": self.state,
+            "search_results": self.search_results,
+            "user_interests": self.user_interests,
+            "initial_extraction": self._initial_extraction,
+            "response": "",
+            "has_high_risk": False,
+        }
+        result = self._graph.invoke(state)
+        self.state = result["agent_state"]
+        self.search_results = result["search_results"]
+        self.user_interests = result["user_interests"]
+        self._initial_extraction = result.get("initial_extraction")
+        return result
 
     def _emit_status(self, message: str) -> None:
         if not self.on_status:
@@ -82,11 +95,8 @@ class TravelAgent:
         Returns:
             Clarification questions for missing info, or request for origin/destination.
         """
-        response, extracted = clarification.handle_start(
-            self.client, self.state, user_prompt
-        )
-        self._initial_extraction = extracted
-        return response
+        result = self._run_graph("start", {"prompt": user_prompt})
+        return result["response"]
 
     def process_clarification(self, answers: str) -> tuple[str, bool]:
         """Process user's answers to clarification questions.
@@ -99,19 +109,8 @@ class TravelAgent:
         Returns:
             Tuple of (response text, has_high_risk).
         """
-        constraints = clarification.process_clarification(
-            self.client, self.state, answers, self._initial_extraction
-        )
-        self.state.constraints = constraints
-
-        # Move to feasibility phase
-        self.state.phase = Phase.FEASIBILITY
-        return feasibility.run_feasibility_check(
-            self.client,
-            self.state,
-            self.search_results,
-            self._handle_tool_call,
-        )
+        result = self._run_graph("clarify", {"answers": answers})
+        return result["response"], bool(result.get("has_high_risk"))
 
     def confirm_proceed(self, proceed: bool) -> str:
         """Handle user's decision to proceed despite high risk.
@@ -122,18 +121,13 @@ class TravelAgent:
         Returns:
             Next phase response.
         """
-        self.state.awaiting_confirmation = False
-
-        if not proceed:
-            return "Totally fair. You might want to check out the alternatives I mentioned, or we can adjust your dates/destination. What do you think?"
-
-        self.state.phase = Phase.ASSUMPTIONS
-        return self._generate_assumptions()
+        result = self._run_graph("proceed", {"proceed": proceed})
+        return result["response"]
 
     def proceed_to_assumptions(self) -> str:
         """Move to assumptions phase after feasibility check."""
-        self.state.phase = Phase.ASSUMPTIONS
-        return self._generate_assumptions()
+        result = self._run_graph("proceed", {"proceed": True})
+        return result["response"]
 
     def _generate_assumptions(self) -> str:
         """Generate and present assumptions before planning.
@@ -141,7 +135,8 @@ class TravelAgent:
         Returns:
             Assumptions text for user confirmation.
         """
-        return assumptions.generate_assumptions(self.client, self.state)
+        result = self._run_graph("proceed", {"proceed": True})
+        return result["response"]
 
     def confirm_assumptions(
         self,
@@ -161,46 +156,16 @@ class TravelAgent:
         Returns:
             Generated plan or request for clarification.
         """
-        from app.agent.sanitizer import sanitize_input
-
-        self.state.awaiting_confirmation = False
-
-        # Use modifications if provided, otherwise use adjustments for backward compatibility
-        user_modifications = modifications or adjustments
-        if additional_interests:
-            user_modifications = f"{user_modifications or ''}\nAdditional interests: {additional_interests}"
-
-        if not confirmed and user_modifications:
-            # Sanitize user modifications
-            result = sanitize_input(user_modifications)
-            user_modifications = result.text
-            if result.injection_detected:
-                logger.warning(
-                    "Possible prompt injection in modifications: %s", result.flags
-                )
-
-            # Store user interests/adjustments for later use
-            self.user_interests.append(user_modifications)
-            if self.state.constraints:
-                self.state.constraints.interests.append(user_modifications)
-
-            self.state.add_message("user", f"Adjustments needed: {user_modifications}")
-
-            # Search for events/activities based on user interests
-            search_results = assumptions.search_for_interests(
-                self.client, self.state, user_modifications, self._handle_tool_call
-            )
-            if search_results:
-                self.search_results.append(search_results)
-
-            # Update assumptions with modifications, then proceed directly to planning
-            assumptions.update_assumptions_with_interests(
-                self.client, self.state, user_modifications, self.search_results
-            )
-
-        # Proceed to planning (whether confirmed directly or after incorporating modifications)
-        self.state.phase = Phase.PLANNING
-        return self._generate_plan()
+        self._emit_status("Researching current prices...")
+        result = self._run_graph(
+            "assumptions",
+            {
+                "confirmed": confirmed,
+                "modifications": modifications or adjustments,
+                "additional_interests": additional_interests,
+            },
+        )
+        return result["response"]
 
     def _generate_plan(self) -> str:
         """Generate the travel itinerary.
@@ -209,13 +174,8 @@ class TravelAgent:
             Day-by-day travel plan.
         """
         self._emit_status("Researching current prices...")
-        return planning.generate_plan(
-            self.client,
-            self.state,
-            self.search_results,
-            self.user_interests,
-            self._handle_tool_call,
-        )
+        result = self._run_graph("assumptions", {"confirmed": True})
+        return result["response"]
 
     def refine_plan(self, refinement_type: str) -> str:
         """Refine the plan based on user's choice.
@@ -226,4 +186,5 @@ class TravelAgent:
         Returns:
             Refined plan.
         """
-        return refinement.refine_plan(self.client, self.state, refinement_type)
+        result = self._run_graph("refine", {"refinement_type": refinement_type})
+        return result["response"]
