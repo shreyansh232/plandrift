@@ -12,6 +12,13 @@ export function TripPageClient() {
   const { user, loading, signOut } = useProfile();
 
   useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.replace("/login");
+    }
+  }, [loading, user, router]);
+
+  useEffect(() => {
     const initial = searchParams.get("prompt");
     if (!initial || !initial.trim()) {
       router.replace("/");

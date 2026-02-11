@@ -43,7 +43,7 @@ from app.services import trip as trip_service
 router = APIRouter(prefix="/trips", tags=["trips"])
 
 
-def _chunk_text(text: str, size: int = 20) -> list[str]:
+def _chunk_text(text: str, size: int = 16) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)]
 
 
@@ -79,7 +79,7 @@ async def _stream_agent_response(
     for chunk in _chunk_text(response.message):
         payload = json.dumps({"text": chunk})
         yield f"event: delta\ndata: {payload}\n\n"
-        await asyncio.sleep(0.06)
+        await asyncio.sleep(0.12)
 
     yield "event: done\ndata: {}\n\n"
 

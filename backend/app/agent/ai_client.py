@@ -18,6 +18,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = os.environ.get(
     "OPENROUTER_MODEL", "google/gemini-3-flash-preview"
 )
+FAST_MODEL = os.environ.get("OPENROUTER_MODEL_FAST")
 
 
 class AIClient:

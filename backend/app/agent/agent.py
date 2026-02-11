@@ -3,7 +3,7 @@
 import logging
 from typing import Callable, Optional
 
-from app.agent.ai_client import AIClient, DEFAULT_MODEL
+from app.agent.ai_client import AIClient, DEFAULT_MODEL, FAST_MODEL
 from app.agent.graph import build_agent_graph
 from app.agent.models import ConversationState
 
@@ -17,6 +17,7 @@ class TravelAgent:
         self,
         api_key: Optional[str] = None,
         model: str = DEFAULT_MODEL,
+        fast_model: str = FAST_MODEL,
         on_search: Optional[Callable[[str], None]] = None,
         on_status: Optional[Callable[[str], None]] = None,
     ):
@@ -28,6 +29,7 @@ class TravelAgent:
             on_search: Optional callback when a web search is performed.
         """
         self.client = AIClient(api_key=api_key, model=model)
+        self.fast_client = AIClient(api_key=api_key, model=fast_model)
         self.state = ConversationState()
         self.on_search = on_search
         self.search_results: list[str] = []  # Store search results for context
@@ -35,7 +37,9 @@ class TravelAgent:
         self._initial_extraction = None
         self.on_status = on_status
         self._last_status: Optional[str] = None
-        self._graph = build_agent_graph(self.client, self._handle_tool_call)
+        self._graph = build_agent_graph(
+            self.client, self.fast_client, self._handle_tool_call
+        )
 
     def _run_graph(self, action: str, payload: dict) -> dict:
         state = {

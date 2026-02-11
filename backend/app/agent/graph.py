@@ -34,6 +34,7 @@ class AgentGraphState(TypedDict):
 
 def build_agent_graph(
     client: AIClient,
+    fast_client: AIClient,
     on_tool_call: Optional[Callable[[str, dict], None]] = None,
 ):
     """Build the LangGraph workflow used by the TravelAgent."""
@@ -63,7 +64,7 @@ def build_agent_graph(
         state["agent_state"].phase = Phase.FEASIBILITY
 
         response, has_high_risk = feasibility.run_feasibility_check(
-            client,
+            fast_client,
             state["agent_state"],
             state["search_results"],
             on_tool_call,
@@ -92,7 +93,9 @@ def build_agent_graph(
             return state
 
         agent_state.phase = Phase.ASSUMPTIONS
-        state["response"] = assumptions.generate_assumptions(client, agent_state)
+        state["response"] = assumptions.generate_assumptions(
+            fast_client, agent_state
+        )
         state["has_high_risk"] = False
         return state
 
@@ -126,13 +129,13 @@ def build_agent_graph(
             )
 
             search_results = assumptions.search_for_interests(
-                client, agent_state, user_modifications, on_tool_call
+                fast_client, agent_state, user_modifications, on_tool_call
             )
             if search_results:
                 state["search_results"].append(search_results)
 
             assumptions.update_assumptions_with_interests(
-                client, agent_state, user_modifications, state["search_results"]
+                fast_client, agent_state, user_modifications, state["search_results"]
             )
 
         agent_state.phase = Phase.PLANNING

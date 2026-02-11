@@ -6,15 +6,28 @@ import type { AuthUser } from "@/lib/api";
 
 export function useProfile() {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated()) return;
+    let active = true;
+    if (!isAuthenticated()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     getProfile()
-      .then((data) => setUser(data))
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false));
+      .then((data) => {
+        if (active) setUser(data);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const signOut = () => logout().finally(() => setUser(null));

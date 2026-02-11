@@ -71,10 +71,12 @@ export function ChatInterface({
   const [hasHighRisk, setHasHighRisk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
+  const [streamingHasDelta, setStreamingHasDelta] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const startedRef = useRef(false);
   const startInFlightRef = useRef(false);
+  const actionInFlightRef = useRef(false);
   const initialMessageIdRef = useRef<string | null>(null);
   const pendingPromptRef = useRef(initialPrompt);
   const storageKey = `plandrift_chat_${initialPrompt}`;
@@ -204,6 +206,7 @@ export function ChatInterface({
       let hasDelta = false;
       let created = false;
       initialMessageIdRef.current = null;
+      setStreamingHasDelta(false);
 
       const ensureMessage = () => {
         if (created) return;
@@ -241,12 +244,14 @@ export function ChatInterface({
             ),
           );
           hasDelta = true;
+          setStreamingHasDelta(true);
         }
       }
 
       if (nextActionFromMeta) {
         setNextAction(nextActionFromMeta(meta));
       }
+      setStreamingHasDelta(false);
     },
     [],
   );
@@ -297,6 +302,8 @@ export function ChatInterface({
   const doClarify = useCallback(
     async (answers: string) => {
       if (!tripId) return;
+      if (actionInFlightRef.current) return;
+      actionInFlightRef.current = true;
       setIsLoading(true);
       setLoadingText("Analyzing feasibility...");
       setError(null);
@@ -311,6 +318,7 @@ export function ChatInterface({
         setNextAction("text_input");
       } finally {
         setIsLoading(false);
+        actionInFlightRef.current = false;
       }
     },
     [tripId, nextAction, consumeStream, handleError],
@@ -326,6 +334,8 @@ export function ChatInterface({
       ) {
         return;
       }
+      if (actionInFlightRef.current) return;
+      actionInFlightRef.current = true;
       setIsLoading(true);
       setLoadingText(
         proceed ? "Generating assumptions..." : "Processing...",
@@ -343,6 +353,7 @@ export function ChatInterface({
         handleError(err);
       } finally {
         setIsLoading(false);
+        actionInFlightRef.current = false;
       }
     },
     [tripId, nextAction, consumeStream, handleError],
@@ -351,6 +362,8 @@ export function ChatInterface({
   const doConfirmAssumptions = useCallback(
     async (confirmed: boolean, modifications?: string) => {
       if (!tripId) return;
+      if (actionInFlightRef.current) return;
+      actionInFlightRef.current = true;
       setIsLoading(true);
       setLoadingText(
         "Researching prices and building your itinerary — this may take a minute...",
@@ -369,6 +382,7 @@ export function ChatInterface({
         setNextAction("assumptions_confirm");
       } finally {
         setIsLoading(false);
+        actionInFlightRef.current = false;
       }
     },
     [tripId, consumeStream, handleError],
@@ -377,6 +391,8 @@ export function ChatInterface({
   const doRefine = useCallback(
     async (refinementType: string) => {
       if (!tripId) return;
+      if (actionInFlightRef.current) return;
+      actionInFlightRef.current = true;
       setIsLoading(true);
       setLoadingText("Refining your plan...");
       setError(null);
@@ -389,6 +405,7 @@ export function ChatInterface({
         setNextAction("done");
       } finally {
         setIsLoading(false);
+        actionInFlightRef.current = false;
       }
     },
     [tripId, consumeStream, handleError],
@@ -605,16 +622,17 @@ export function ChatInterface({
                     Ready to move forward?
                   </div>
                   <div className="mt-3">
-                    <Button
-                      onClick={() => {
-                        addMessage("user", "Looks good, continue!");
-                        setNextAction("text_input");
-                        doProceed(true, true);
-                      }}
-                      className="rounded-full bg-black text-white hover:bg-black/90"
-                    >
-                      Continue to Planning
-                    </Button>
+                  <Button
+                    onClick={() => {
+                      addMessage("user", "Looks good, continue!");
+                      setNextAction("text_input");
+                      doProceed(true, true);
+                    }}
+                    disabled={isLoading}
+                    className="rounded-full bg-black text-white hover:bg-black/90"
+                  >
+                    Continue to Planning
+                  </Button>
                   </div>
                 </Card>
               </div>
@@ -622,7 +640,7 @@ export function ChatInterface({
           )}
 
           {/* Loading indicator */}
-          {isLoading && (
+          {isLoading && !streamingHasDelta && (
             <div className="flex justify-start">
               <div className="flex items-start gap-3 max-w-[92%]">
                 <div className="mt-1 size-8 shrink-0 rounded-full border border-black/10 bg-white flex items-center justify-center text-xs font-semibold text-black">
@@ -692,6 +710,7 @@ export function ChatInterface({
                   addMessage("user", "Let's proceed anyway.");
                   doProceed(true);
                 }}
+                disabled={isLoading}
               >
                 Proceed Anyway
               </Button>
@@ -701,6 +720,7 @@ export function ChatInterface({
                   addMessage("user", "Let me reconsider.");
                   doProceed(false);
                 }}
+                disabled={isLoading}
               >
                 Reconsider
               </Button>
@@ -713,12 +733,14 @@ export function ChatInterface({
                   addMessage("user", "Looks good — go ahead and plan!");
                   doConfirmAssumptions(true);
                 }}
+                disabled={isLoading}
               >
                 Looks Good, Plan It!
               </Button>
               <Button
                 variant="outline"
                 onClick={() => setNextAction("modify_input")}
+                disabled={isLoading}
               >
                 I Want Changes
               </Button>
