@@ -12,22 +12,13 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "Planfirst",
     url: "https://planfirst.vercel.app",
-    images: [
-      {
-        url: "https://planfirst.vercel.app/og.png",
-        width: 1200,
-        height: 630,
-        alt: "Planfirst - AI That Plans Before You Do",
-        type: "image/png",
-      },
-    ],
+    // Images are served from opengraph-image.png and twitter-image.png (Next.js file-based metadata)
   },
   twitter: {
     card: "summary_large_image",
     site: "@planfirst",
     title: "Planfirst",
     description: "Plan better trips, faster.",
-    images: ["https://planfirst.vercel.app/og.png"],
   },
   robots: {
     index: true,
