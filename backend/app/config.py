@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # --- Security & Auth ---
     secret_key: SecretStr = SecretStr("dev-secret-key-change-in-production")
     algorithm: str = "HS256"  # Hashing algo for tokens
-    access_token_expire_minutes: int = 15  # Short-lived access tokens (15 minutes)
+    access_token_expire_minutes: int = 60  # Access tokens (60 minutes)
     refresh_token_expire_minutes: int = (
         60 * 24 * 30
     )  # Long-lived refresh tokens (30 days)
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     openrouter_api_key: Optional[str] = (
         None  # API key for OpenRouter (Optional allows app to start without it)
     )
-    openrouter_model: str = "google/gemini-3-flash-preview"
+    openrouter_model: str = "openai/gpt-4o-mini"
     openrouter_model_fast: Optional[str] = "openai/gpt-4o-mini"
 
     # --- CORS ---

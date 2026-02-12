@@ -68,7 +68,7 @@ class AIClient:
         self,
         messages: list[dict],
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_tokens: Optional[int] = 2000,
     ) -> str:
         """Send a chat completion request and return the response text.
 
@@ -84,14 +84,46 @@ class AIClient:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
+            "max_tokens": max_tokens,
         }
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
 
         response = self._create_completion_with_retry(**kwargs)
         if not response.choices:
             raise ValueError("Empty response from API — model returned no choices.")
         return response.choices[0].message.content or ""
+
+    def chat_stream(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = 3000,
+    ):
+        """Stream a chat completion request and yield tokens as they arrive.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys.
+            temperature: Sampling temperature (0-2).
+            max_tokens: Maximum tokens in response.
+
+        Yields:
+            Token strings as they arrive from the API.
+        """
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        try:
+            stream = self.client.chat.completions.create(**kwargs)
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except RateLimitError as err:
+            logger.warning(f"Rate limit hit during streaming: {err}")
+            raise
 
     def chat_with_tools(
         self,

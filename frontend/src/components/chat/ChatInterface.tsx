@@ -6,17 +6,18 @@ import { ArrowUp, Sparkles, Loader2, Plane, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  startTripStream,
-  clarifyTripStream,
-  proceedTripStream,
-  confirmAssumptionsStream,
-  refineTripStream,
+  startTripTokenStream,
+  clarifyTripTokenStream,
+  proceedTripTokenStream,
+  confirmAssumptionsTokenStream,
+  refineTripTokenStream,
   getTripMessages,
   getTrip,
   ApiError,
   clearTokens,
 } from "@/lib/api";
 import type { AuthUser, StreamEvent, StreamMeta } from "@/lib/api";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,85 +115,6 @@ export function ChatInterface({
     }
   }, [initialTripId]);
 
-  // ---- helpers ----
-
-  const renderBoldInline = (text: string) => {
-    const parts = text.split("**");
-    return parts.map((part, idx) =>
-      idx % 2 === 1 ? (
-        <strong key={idx} className="font-semibold text-foreground">
-          {part}
-        </strong>
-      ) : (
-        <span key={idx}>{part}</span>
-      ),
-    );
-  };
-
-  const renderInline = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-    return parts.map((part, idx) => {
-      if (part.startsWith("http")) {
-        return (
-          <a
-            key={`link-${idx}`}
-            href={part}
-            target="_blank"
-            rel="noreferrer"
-            className="text-accent underline underline-offset-2 hover:text-accent/80 transition-colors"
-          >
-            {part}
-          </a>
-        );
-      }
-      return <span key={`text-${idx}`}>{renderBoldInline(part)}</span>;
-    });
-  };
-
-  const renderFormatted = (text: string) => {
-    const lines = text.split("\n");
-    return (
-      <div className="space-y-3">
-        {lines.map((line, idx) => {
-          const trimmed = line.trim();
-          if (!trimmed) return <div key={idx} className="h-2" />;
-
-          if (
-            trimmed.startsWith("• ") ||
-            trimmed.startsWith("- ") ||
-            trimmed.startsWith("→ ")
-          ) {
-            const bullet = trimmed.startsWith("→ ") ? "→" : "•";
-            const content = trimmed.replace(/^•\s|^-\s|^→\s/, "");
-            return (
-              <div key={idx} className="flex gap-3 items-start">
-                <span className="text-accent mt-1.5">{bullet}</span>
-                <span className="text-foreground/90">{renderInline(content)}</span>
-              </div>
-            );
-          }
-
-          // Check for headers (lines ending with :)
-          if (trimmed.endsWith(":") && trimmed.length < 50) {
-            return (
-              <div key={idx} className="mt-4 first:mt-0">
-                <h4 className="font-semibold text-foreground font-display text-base">
-                  {trimmed}
-                </h4>
-              </div>
-            );
-          }
-
-          return (
-            <div key={idx} className="text-[15px] leading-relaxed text-foreground/80">
-              {renderInline(trimmed)}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
 
   const addMessage = useCallback(
     (role: Message["role"], content: string, phase?: string) => {
@@ -228,7 +150,7 @@ export function ChatInterface({
     ) => {
       const id = `${Date.now()}-${++idCounterRef.current}`;
       let meta: StreamMeta | null = null;
-      let hasDelta = false;
+      let hasContent = false;
       let created = false;
       initialMessageIdRef.current = null;
       setStreamingHasDelta(false);
@@ -253,6 +175,7 @@ export function ChatInterface({
         if (event.type === "status") {
           setLoadingText(event.data);
         }
+        // Handle delta events (chunked streaming)
         if (event.type === "delta") {
           const cleaned = event.data.replace(/\n{3,}/g, "\n\n");
           if (!created) {
@@ -263,12 +186,27 @@ export function ChatInterface({
               msg.id === (initialMessageIdRef.current || id)
                 ? {
                     ...msg,
-                    content: hasDelta ? msg.content + cleaned : cleaned,
+                    content: hasContent ? msg.content + cleaned : cleaned,
                   }
                 : msg,
             ),
           );
-          hasDelta = true;
+          hasContent = true;
+          setStreamingHasDelta(true);
+        }
+        // Handle token events (character-by-character streaming)
+        if (event.type === "token") {
+          if (!created) {
+            ensureMessage();
+          }
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === (initialMessageIdRef.current || id)
+                ? { ...msg, content: msg.content + event.data }
+                : msg,
+            ),
+          );
+          hasContent = true;
           setStreamingHasDelta(true);
         }
       }
@@ -315,10 +253,12 @@ export function ChatInterface({
           throw new Error("Please enter a trip request to get started.");
         }
         pendingPromptRef.current = prompt;
-        if (messages.length === 0) {
+        // Only add user message on the initial call (not force re-starts,
+        // since handleSubmit already adds the user message before calling doStart).
+        if (!force) {
           addMessage("user", prompt);
         }
-        const stream = await startTripStream(prompt);
+        const stream = await startTripTokenStream(prompt);
         await consumeStream(stream, () => "text_input");
       } catch (err) {
         handleError(err);
@@ -326,7 +266,7 @@ export function ChatInterface({
         setIsLoading(false);
         startInFlightRef.current = false;
       }
-  }, [initialPrompt, consumeStream, handleError, addMessage, messages.length]);
+  }, [initialPrompt, consumeStream, handleError, addMessage]);
 
   const doClarify = useCallback(
     async (answers: string) => {
@@ -337,7 +277,7 @@ export function ChatInterface({
       setLoadingText("Analyzing feasibility...");
 
       try {
-        const stream = await clarifyTripStream(tripId, answers);
+        const stream = await clarifyTripTokenStream(tripId, answers);
         await consumeStream(stream, (meta) =>
           meta?.has_high_risk ? "proceed_confirm" : "proceed_continue",
         );
@@ -370,9 +310,11 @@ export function ChatInterface({
       );
 
       try {
-        const stream = await proceedTripStream(tripId, proceed);
+        const stream = await proceedTripTokenStream(tripId, proceed);
         await consumeStream(stream, (meta) =>
-          meta?.phase === "assumptions"
+          meta?.phase === "planning"
+            ? "done"
+            : meta?.phase === "assumptions"
             ? "assumptions_confirm"
             : "text_input",
         );
@@ -397,7 +339,7 @@ export function ChatInterface({
       );
 
       try {
-        const stream = await confirmAssumptionsStream(
+        const stream = await confirmAssumptionsTokenStream(
           tripId,
           confirmed,
           modifications,
@@ -423,7 +365,7 @@ export function ChatInterface({
       setLoadingText("Refining your plan...");
 
       try {
-        const stream = await refineTripStream(tripId, refinementType);
+        const stream = await refineTripTokenStream(tripId, refinementType);
         await consumeStream(stream, () => "done");
       } catch (err) {
         handleError(err);
@@ -659,14 +601,14 @@ export function ChatInterface({
   return (
     <div className="flex flex-col h-full overflow-hidden bg-[#FAFAF8]">
       {/* Messages Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-8">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div className="max-w-3xl mx-auto space-y-6">
           {displayMessages.length === 0 && !isLoading && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-6">
                 <Sparkles className="w-8 h-8 text-accent" />
               </div>
-              <h3 className="text-xl font-display text-foreground mb-2">
+              <h3 className="text-xl font-semibold text-foreground mb-2">
                 Start Planning Your Trip
               </h3>
               <p className="text-muted-foreground max-w-sm">
@@ -704,8 +646,14 @@ export function ChatInterface({
                       )}
                     </div>
                   ) : (
-                    <div className="mt-0.5 shrink-0 w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-semibold">
-                      AI
+                    <div className="mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center overflow-hidden">
+                      <img
+                        src="/favicon.ico"
+                        alt="Planfirst"
+                        width={40}
+                        height={40}
+                        className="w-10 h-10 object-contain"
+                      />
                     </div>
                   )}
 
@@ -718,7 +666,7 @@ export function ChatInterface({
                     }
                   `}>
                     {message.role === "assistant" ? (
-                      renderFormatted(message.content)
+                      <MarkdownRenderer content={message.content} />
                     ) : (
                       <p className="text-[15px] leading-relaxed">{message.content}</p>
                     )}
@@ -797,7 +745,7 @@ export function ChatInterface({
                       ? "Describe what you'd like to change..."
                       : "Type your message..."
                   }
-                  className="w-full h-14 pl-6 pr-14 rounded-full bg-muted/30 border focus:bg-white focus:ring-2 focus:ring-accent/20 transition-all text-[15px]"
+                  className="w-full h-14 pl-6 pr-14 rounded-full bg-muted/30 border-transparent shadow-sm focus:bg-white focus:ring-2 focus:ring-accent/20 transition-all text-[15px]"
                 />
                 <button
                   type="submit"
@@ -894,7 +842,7 @@ export function ChatInterface({
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="Request changes like 'add more hiking' or 'make it cheaper'..."
-                    className="w-full h-14 pl-6 pr-14 rounded-full bg-muted/30 border focus:bg-white focus:ring-2 focus:ring-accent/20 transition-all text-[15px]"
+                    className="w-full h-14 pl-6 pr-14 rounded-full bg-muted/30 border-transparent shadow-sm focus:bg-white focus:ring-2 focus:ring-accent/20 transition-all text-[15px]"
                   />
                   <button
                     type="submit"

@@ -20,12 +20,12 @@ CRUD
   DELETE /trips/{id}             → Delete trip + versions + session
 """
 
-from typing import Annotated, AsyncGenerator, Optional
+from typing import Annotated, AsyncGenerator, Callable, Optional
 import json
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,11 +44,12 @@ from app.services import trip as trip_service
 router = APIRouter(prefix="/trips", tags=["trips"])
 
 
-def _chunk_text(text: str, size: int = 16) -> list[str]:
+def _chunk_text(text: str, size: int = 8) -> list[str]:
+    """Split text into smaller chunks for smoother streaming."""
     return [text[i : i + size] for i in range(0, len(text), size)]
 
 
-def _make_status_callback(status_queue: asyncio.Queue[str]) -> callable:
+def _make_status_callback(status_queue: asyncio.Queue[str]) -> Callable[[str], None]:
     loop = asyncio.get_running_loop()
 
     def _cb(message: str) -> None:
@@ -59,7 +60,6 @@ def _make_status_callback(status_queue: asyncio.Queue[str]) -> callable:
 
 async def _stream_agent_response(
     response: AgentResponse,
-    status_queue: "asyncio.Queue[str] | None" = None,
 ) -> AsyncGenerator[str, None]:
     meta = {
         "trip_id": str(response.trip_id) if response.trip_id else None,
@@ -69,18 +69,11 @@ async def _stream_agent_response(
     }
     yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
 
-    if status_queue:
-        while True:
-            status = await status_queue.get()
-            if status == "__done__":
-                break
-            payload = json.dumps({"text": status})
-            yield f"event: status\ndata: {payload}\n\n"
-
+    # Stream the response with minimal delay for token-like feel
     for chunk in _chunk_text(response.message):
         payload = json.dumps({"text": chunk})
         yield f"event: delta\ndata: {payload}\n\n"
-        await asyncio.sleep(0.12)
+        await asyncio.sleep(0.02)  # 20ms delay for smooth streaming
 
     yield "event: done\ndata: {}\n\n"
 
@@ -165,9 +158,7 @@ async def start_trip(
     the response message asks for them and ``trip_id`` will be ``null`` —
     call this endpoint again with a more complete prompt.
     """
-    return await trip_service.start_trip_conversation(
-        db, current_user.id, body.prompt
-    )
+    return await trip_service.start_trip_conversation(db, current_user.id, body.prompt)
 
 
 @router.post("/start/stream")
@@ -183,15 +174,39 @@ async def start_trip_stream(
 
     async def runner() -> AgentResponse:
         return await trip_service.start_trip_conversation(
-            db, current_user.id, body.prompt
+            db,
+            current_user.id,
+            body.prompt,
+            on_status=_make_status_callback(status_queue),
         )
 
     async def generator() -> AsyncGenerator[str, None]:
         task = asyncio.create_task(runner())
-        response = await task
-        await status_queue.put("__done__")
-        async for chunk in _stream_agent_response(response, status_queue):
-            yield chunk
+        try:
+            while not task.done():
+                try:
+                    status_msg = await asyncio.wait_for(status_queue.get(), timeout=0.2)
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            if task.exception():
+                exc = task.exception()
+                if isinstance(exc, HTTPException):
+                    error_payload = json.dumps(
+                        {"error": exc.detail, "status_code": exc.status_code}
+                    )
+                else:
+                    error_payload = json.dumps({"error": str(exc), "status_code": 500})
+                yield f"event: error\ndata: {error_payload}\n\n"
+                return
+
+            response = await task
+            async for chunk in _stream_agent_response(response):
+                yield chunk
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
 
     return StreamingResponse(generator(), media_type="text/event-stream")
 
@@ -225,15 +240,40 @@ async def clarify_trip_stream(
 
     async def runner() -> AgentResponse:
         return await trip_service.submit_clarification(
-            db, trip_id, current_user.id, body.answers
+            db,
+            trip_id,
+            current_user.id,
+            body.answers,
+            on_status=_make_status_callback(status_queue),
         )
 
     async def generator() -> AsyncGenerator[str, None]:
         task = asyncio.create_task(runner())
-        response = await task
-        await status_queue.put("__done__")
-        async for chunk in _stream_agent_response(response, status_queue):
-            yield chunk
+        try:
+            while not task.done():
+                try:
+                    status_msg = await asyncio.wait_for(status_queue.get(), timeout=0.2)
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            if task.exception():
+                exc = task.exception()
+                if isinstance(exc, HTTPException):
+                    error_payload = json.dumps(
+                        {"error": exc.detail, "status_code": exc.status_code}
+                    )
+                else:
+                    error_payload = json.dumps({"error": str(exc), "status_code": 500})
+                yield f"event: error\ndata: {error_payload}\n\n"
+                return
+
+            response = await task
+            async for chunk in _stream_agent_response(response):
+                yield chunk
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
 
     return StreamingResponse(generator(), media_type="text/event-stream")
 
@@ -268,15 +308,40 @@ async def proceed_trip_stream(
 
     async def runner() -> AgentResponse:
         return await trip_service.proceed_after_feasibility(
-            db, trip_id, current_user.id, body.proceed
+            db,
+            trip_id,
+            current_user.id,
+            body.proceed,
+            on_status=_make_status_callback(status_queue),
         )
 
     async def generator() -> AsyncGenerator[str, None]:
         task = asyncio.create_task(runner())
-        response = await task
-        await status_queue.put("__done__")
-        async for chunk in _stream_agent_response(response, status_queue):
-            yield chunk
+        try:
+            while not task.done():
+                try:
+                    status_msg = await asyncio.wait_for(status_queue.get(), timeout=0.2)
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            if task.exception():
+                exc = task.exception()
+                if isinstance(exc, HTTPException):
+                    error_payload = json.dumps(
+                        {"error": exc.detail, "status_code": exc.status_code}
+                    )
+                else:
+                    error_payload = json.dumps({"error": str(exc), "status_code": 500})
+                yield f"event: error\ndata: {error_payload}\n\n"
+                return
+
+            response = await task
+            async for chunk in _stream_agent_response(response):
+                yield chunk
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
 
     return StreamingResponse(generator(), media_type="text/event-stream")
 
@@ -325,16 +390,31 @@ async def confirm_assumptions_stream(
 
     async def generator() -> AsyncGenerator[str, None]:
         task = asyncio.create_task(runner())
-        while not task.done():
-            try:
-                status = await asyncio.wait_for(status_queue.get(), timeout=0.2)
-                payload = json.dumps({"text": status})
-                yield f"event: status\ndata: {payload}\n\n"
-            except asyncio.TimeoutError:
-                continue
-        response = await task
-        async for chunk in _stream_agent_response(response):
-            yield chunk
+        try:
+            while not task.done():
+                try:
+                    status_msg = await asyncio.wait_for(status_queue.get(), timeout=0.2)
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            if task.exception():
+                exc = task.exception()
+                if isinstance(exc, HTTPException):
+                    error_payload = json.dumps(
+                        {"error": exc.detail, "status_code": exc.status_code}
+                    )
+                else:
+                    error_payload = json.dumps({"error": str(exc), "status_code": 500})
+                yield f"event: error\ndata: {error_payload}\n\n"
+                return
+
+            response = await task
+            async for chunk in _stream_agent_response(response):
+                yield chunk
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
 
     return StreamingResponse(generator(), media_type="text/event-stream")
 
@@ -375,16 +455,385 @@ async def refine_trip_stream(
 
     async def generator() -> AsyncGenerator[str, None]:
         task = asyncio.create_task(runner())
-        while not task.done():
-            try:
-                status = await asyncio.wait_for(status_queue.get(), timeout=0.2)
-                payload = json.dumps({"text": status})
-                yield f"event: status\ndata: {payload}\n\n"
-            except asyncio.TimeoutError:
-                continue
-        response = await task
-        async for chunk in _stream_agent_response(response):
-            yield chunk
+        try:
+            while not task.done():
+                try:
+                    status = await asyncio.wait_for(status_queue.get(), timeout=0.2)
+                    payload = json.dumps({"text": status})
+                    yield f"event: status\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            # Check if task raised an exception
+            if task.exception():
+                exc = task.exception()
+                if isinstance(exc, HTTPException):
+                    error_payload = json.dumps(
+                        {"error": exc.detail, "status_code": exc.status_code}
+                    )
+                else:
+                    error_payload = json.dumps({"error": str(exc), "status_code": 500})
+                yield f"event: error\ndata: {error_payload}\n\n"
+                return
+
+            response = await task
+            async for chunk in _stream_agent_response(response):
+                yield chunk
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Token Streaming endpoints (character-by-character)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{trip_id}/clarify/token-stream")
+async def clarify_trip_token_stream(
+    trip_id: UUID,
+    body: ClarifyRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """Submit clarification answers with token-by-token streaming."""
+    status_queue: asyncio.Queue[str] = asyncio.Queue()
+    token_queue: asyncio.Queue[str] = asyncio.Queue[str]()
+
+    async def generator() -> AsyncGenerator[str, None]:
+        try:
+            # Ownership and validity check
+            await trip_service._get_user_trip(db, trip_id, current_user.id)
+            agent = trip_service._get_agent(trip_id)
+            version = await trip_service._latest_version(db, trip_id)
+
+            # Send initial meta before streaming tokens
+            meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+
+            loop = asyncio.get_running_loop()
+            agent.on_status = _make_status_callback(status_queue)
+
+            full_response = ""
+
+            def run():
+                nonlocal full_response
+                for token in agent.process_clarification_stream(body.answers):
+                    full_response += token
+                    loop.call_soon_threadsafe(token_queue.put_nowait, token)
+
+            task = asyncio.create_task(asyncio.to_thread(run))
+
+            while not task.done() or not status_queue.empty() or not token_queue.empty():
+                while not status_queue.empty():
+                    status_msg = status_queue.get_nowait()
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+
+                while not token_queue.empty():
+                    token = token_queue.get_nowait()
+                    yield f"event: token\ndata: {json.dumps({'text': token})}\n\n"
+
+                await asyncio.sleep(0.02)
+
+            if task.exception():
+                raise task.exception()
+
+            # Finalize and persist
+            await trip_service._persist_state(db, version, agent)
+            await trip_service._store_message(
+                db, trip_id, "user", body.answers, phase=agent.state.phase.value
+            )
+            await trip_service._store_message(
+                db, trip_id, "assistant", full_response, phase=agent.state.phase.value
+            )
+
+            # Send FINAL meta with updated phase
+            final_meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": agent.state.phase.value == "feasibility" and agent.state.awaiting_confirmation,
+            }
+            yield f"event: meta\ndata: {json.dumps(final_meta)}\n\n"
+
+            yield "event: done\ndata: {}\n\n"
+
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+@router.post("/{trip_id}/proceed/token-stream")
+async def proceed_trip_token_stream(
+    trip_id: UUID,
+    body: ProceedRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """Handle proceed decision with token-by-token streaming."""
+    status_queue: asyncio.Queue[str] = asyncio.Queue()
+    token_queue: asyncio.Queue[str] = asyncio.Queue[str]()
+
+    async def generator() -> AsyncGenerator[str, None]:
+        try:
+            # Ownership and validity check
+            await trip_service._get_user_trip(db, trip_id, current_user.id)
+            agent = trip_service._get_agent(trip_id)
+            version = await trip_service._latest_version(db, trip_id)
+
+            loop = asyncio.get_running_loop()
+            agent.on_status = _make_status_callback(status_queue)
+
+            full_response = ""
+
+            def run():
+                nonlocal full_response
+                # Call this BEFORE sending meta so the phase is updated
+                for token in agent.confirm_proceed_stream(body.proceed):
+                    full_response += token
+                    loop.call_soon_threadsafe(token_queue.put_nowait, token)
+
+            # Send initial meta AFTER update
+            meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+
+            task = asyncio.create_task(asyncio.to_thread(run))
+
+            while not task.done() or not status_queue.empty() or not token_queue.empty():
+                while not status_queue.empty():
+                    status_msg = status_queue.get_nowait()
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+
+                while not token_queue.empty():
+                    token = token_queue.get_nowait()
+                    yield f"event: token\ndata: {json.dumps({'text': token})}\n\n"
+
+                await asyncio.sleep(0.02)
+
+            if task.exception():
+                raise task.exception()
+
+            # Finalize and persist
+            await trip_service._persist_state(db, version, agent)
+            user_message = "Let's proceed anyway." if body.proceed else "Let me reconsider."
+            await trip_service._store_message(
+                db, trip_id, "user", user_message, phase=agent.state.phase.value
+            )
+            await trip_service._store_message(
+                db, trip_id, "assistant", full_response, phase=agent.state.phase.value
+            )
+
+            # Send FINAL meta with updated phase
+            final_meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(final_meta)}\n\n"
+
+            yield "event: done\ndata: {}\n\n"
+
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+@router.post("/{trip_id}/assumptions/token-stream")
+async def confirm_assumptions_token_stream(
+    trip_id: UUID,
+    body: AssumptionsRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """Confirm assumptions with token-by-token streaming."""
+    status_queue: asyncio.Queue[str] = asyncio.Queue[str]()
+    token_queue: asyncio.Queue[str] = asyncio.Queue[str]()
+
+    async def generator() -> AsyncGenerator[str, None]:
+        try:
+            # Ownership and validity check
+            await trip_service._get_user_trip(db, trip_id, current_user.id)
+            agent = trip_service._get_agent(trip_id)
+            version = await trip_service._latest_version(db, trip_id)
+
+            loop = asyncio.get_running_loop()
+            agent.on_status = _make_status_callback(status_queue)
+
+            full_response = ""
+
+            def run():
+                nonlocal full_response
+                # Call this BEFORE sending meta so the phase is updated
+                for token in agent.confirm_assumptions_stream(
+                    confirmed=body.confirmed,
+                    modifications=body.modifications,
+                    additional_interests=body.additional_interests,
+                ):
+                    full_response += token
+                    loop.call_soon_threadsafe(token_queue.put_nowait, token)
+
+            # Send initial meta AFTER update
+            meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+
+            task = asyncio.create_task(asyncio.to_thread(run))
+
+            while not task.done() or not status_queue.empty() or not token_queue.empty():
+                while not status_queue.empty():
+                    status_msg = status_queue.get_nowait()
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+
+                while not token_queue.empty():
+                    token = token_queue.get_nowait()
+                    yield f"event: token\ndata: {json.dumps({'text': token})}\n\n"
+
+                await asyncio.sleep(0.02)
+
+            if task.exception():
+                raise task.exception()
+
+            # Finalize and persist
+            await trip_service._persist_state(db, version, agent)
+
+            if (
+                body.confirmed
+                and not body.modifications
+                and not body.additional_interests
+            ):
+                user_message = "Assumptions look good."
+            else:
+                parts = []
+                if body.modifications:
+                    parts.append(body.modifications)
+                if body.additional_interests:
+                    parts.append(body.additional_interests)
+                user_message = " ".join(parts).strip() or "Update assumptions."
+
+            await trip_service._store_message(
+                db, trip_id, "user", user_message, phase=agent.state.phase.value
+            )
+            await trip_service._store_message(
+                db, trip_id, "assistant", full_response, phase=agent.state.phase.value
+            )
+
+            # Send FINAL meta with updated phase
+            final_meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(final_meta)}\n\n"
+
+            yield "event: done\ndata: {}\n\n"
+
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+@router.post("/{trip_id}/refine/token-stream")
+async def refine_trip_token_stream(
+    trip_id: UUID,
+    body: RefineRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """Refine plan with token-by-token streaming."""
+    status_queue: asyncio.Queue[str] = asyncio.Queue[str]()
+    token_queue: asyncio.Queue[str] = asyncio.Queue[str]()
+
+    async def generator() -> AsyncGenerator[str, None]:
+        try:
+            # Ownership and validity check
+            await trip_service._get_user_trip(db, trip_id, current_user.id)
+            agent = trip_service._get_agent(trip_id)
+            version = await trip_service._latest_version(db, trip_id)
+
+            loop = asyncio.get_running_loop()
+            agent.on_status = _make_status_callback(status_queue)
+
+            full_response = ""
+
+            def run():
+                nonlocal full_response
+                # Call this BEFORE sending meta so the phase is updated
+                for token in agent.refine_plan_stream(body.refinement_type):
+                    full_response += token
+                    loop.call_soon_threadsafe(token_queue.put_nowait, token)
+
+            # Send initial meta AFTER update
+            meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+
+            task = asyncio.create_task(asyncio.to_thread(run))
+
+            while not task.done() or not status_queue.empty() or not token_queue.empty():
+                while not status_queue.empty():
+                    status_msg = status_queue.get_nowait()
+                    yield f"event: status\ndata: {json.dumps({'text': status_msg})}\n\n"
+
+                while not token_queue.empty():
+                    token = token_queue.get_nowait()
+                    yield f"event: token\ndata: {json.dumps({'text': token})}\n\n"
+
+                await asyncio.sleep(0.02)
+
+            if task.exception():
+                raise task.exception()
+
+            # Finalize and persist
+            await trip_service._persist_state(db, version, agent)
+            await trip_service._store_message(
+                db, trip_id, "user", body.refinement_type, phase=agent.state.phase.value
+            )
+            await trip_service._store_message(
+                db, trip_id, "assistant", full_response, phase=agent.state.phase.value
+            )
+
+            # Send FINAL meta with updated phase
+            final_meta = {
+                "trip_id": str(trip_id),
+                "version_id": str(version.id),
+                "phase": agent.state.phase.value,
+                "has_high_risk": False,
+            }
+            yield f"event: meta\ndata: {json.dumps(final_meta)}\n\n"
+
+            yield "event: done\ndata: {}\n\n"
+
+        except Exception as e:
+            error_payload = json.dumps({"error": str(e), "status_code": 500})
+            yield f"event: error\ndata: {error_payload}\n\n"
 
     return StreamingResponse(generator(), media_type="text/event-stream")
 
@@ -420,9 +869,7 @@ async def get_trip_versions(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TripWithVersions:
     """Get a trip with all its version history."""
-    return await trip_service.get_trip_version_history(
-        db, trip_id, current_user.id
-    )
+    return await trip_service.get_trip_version_history(db, trip_id, current_user.id)
 
 
 @router.get("/{trip_id}/messages", response_model=list[TripMessageResponse])
@@ -432,9 +879,7 @@ async def get_trip_messages(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[TripMessageResponse]:
     """Get chat messages for a trip conversation."""
-    messages = await trip_service.list_trip_messages(
-        db, trip_id, current_user.id
-    )
+    messages = await trip_service.list_trip_messages(db, trip_id, current_user.id)
     return [TripMessageResponse.model_validate(m) for m in messages]
 
 

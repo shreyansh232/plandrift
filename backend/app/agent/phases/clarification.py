@@ -13,10 +13,47 @@ from app.agent.models import (
 from app.agent.prompts import get_phase_prompt
 from app.agent.sanitizer import sanitize_input, wrap_user_content
 
+from typing import TYPE_CHECKING, Iterator, Callable
+
 if TYPE_CHECKING:
     from app.agent.ai_client import AIClient
 
 logger = logging.getLogger(__name__)
+
+
+def handle_start_stream(
+    client: "AIClient",
+    state: ConversationState,
+    user_prompt: str,
+    language_code: str | None = None,
+) -> Iterator[str]:
+    """Start a new travel planning conversation with token streaming."""
+    # We still need to do the extraction first to know if we can proceed
+    # This part is relatively fast.
+    extraction_response, extracted = handle_start(
+        client, state, user_prompt, language_code
+    )
+
+    # If handle_start already determined we're missing origin/destination,
+    # it returned a static string. We'll just yield it in chunks to mimic streaming.
+    if not extracted or not extracted.origin or not extracted.destination:
+        for char in extraction_response:
+            yield char
+        return
+
+    # If we HAVE origin/destination, handle_start already set up the state messages
+    # for the clarification questions. We just need to stream the last AI call.
+    # The last message in state is currently the 'assistant' message from chat(),
+    # we'll pop it and replace it with streaming.
+    state.messages.pop()
+
+    messages = state.get_openai_messages()
+    full_response = ""
+    for token in client.chat_stream(messages, temperature=0.3):
+        full_response += token
+        yield token
+
+    state.add_message("assistant", full_response)
 
 
 def handle_start(
@@ -132,27 +169,67 @@ def _parse_origin_destination(text: str) -> tuple[str | None, str | None]:
     origin = None
     destination = None
 
-    origin_match = re.search(r"(?:^|\\n)\\s*origin\\s*:\\s*(.+)", text, re.I)
+    origin_match = re.search(r"(?:^|\n)\s*origin\s*:\s*(.+)", text, re.I)
     if origin_match:
         origin = origin_match.group(1).strip().strip(".")
 
-    destination_match = re.search(r"(?:^|\\n)\\s*destination\\s*:\\s*(.+)", text, re.I)
+    destination_match = re.search(r"(?:^|\n)\s*destination\s*:\s*(.+)", text, re.I)
     if destination_match:
         destination = destination_match.group(1).strip().strip(".")
 
-    from_to_match = re.search(r"from\\s+([^\\n]+?)\\s+to\\s+([^\\n]+)", text, re.I)
+    from_to_match = re.search(r"from\s+([^\n]+?)\s+to\s+([^\n]+)", text, re.I)
     if from_to_match:
         origin = origin or from_to_match.group(1).strip().strip(".")
         destination = destination or from_to_match.group(2).strip().strip(".")
 
+    # Handle "to X from Y" (reversed order)
+    if not origin or not destination:
+        to_from_match = re.search(
+            r"(?:trip|travel|visit|going|plan)\s+to\s+([^\n,.]+?)\s+from\s+([^\n,.]+?)(?:\s+(?:with|for|budget|on|in|during)\b|$)",
+            text,
+            re.I,
+        )
+        if to_from_match:
+            destination = destination or to_from_match.group(1).strip().strip(".")
+            origin = origin or to_from_match.group(2).strip().strip(".")
+
     if not destination:
         to_match = re.search(
-            r"(?:trip|travel|visit|going|plan)\\s+to\\s+([^\\n,.]+)", text, re.I
+            r"(?:trip|travel|visit|going|plan)\s+to\s+([^\n,.]+?)(?:\s+(?:from|with|for|in|budget|on)\b|$)",
+            text,
+            re.I,
         )
         if to_match:
             destination = to_match.group(1).strip().strip(".")
 
     return origin, destination
+
+
+def process_clarification_stream(
+    client: "AIClient",
+    state: ConversationState,
+    answers: str,
+    initial_extraction: InitialExtraction | None,
+    language_code: str | None = None,
+    on_status: Callable[[str], None] | None = None,
+) -> Iterator[str]:
+    """Process clarification answers with token streaming, then run feasibility."""
+    from app.agent.phases import feasibility
+
+    # 1. Extract constraints (Fast, non-streaming)
+    constraints = process_clarification(client, state, answers, initial_extraction)
+    state.constraints = constraints
+    state.phase = Phase.FEASIBILITY
+
+    # 2. Yield feasibility assessment tokens
+    # Note: run_feasibility_check_stream will handle feasibility research + assessment
+    yield from feasibility.run_feasibility_check_stream(
+        client,  # Usually better to use the main client for final output
+        state,
+        [],  # Search results list will be populated inside
+        language_code=language_code,
+        on_status=on_status,
+    )
 
 
 def process_clarification(

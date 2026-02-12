@@ -144,6 +144,7 @@ export type StreamMeta = {
 export type StreamEvent =
   | { type: "meta"; data: StreamMeta }
   | { type: "delta"; data: string }
+  | { type: "token"; data: string }
   | { type: "status"; data: string }
   | { type: "done" };
 
@@ -230,11 +231,27 @@ async function streamFetch(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_PREFIX}${path}`, {
+  let res = await fetch(`${API_PREFIX}${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
+
+  // Handle 401 — try token refresh once
+  if (res.status === 401 && getRefreshToken()) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      headers["Authorization"] = `Bearer ${getAccessToken()}`;
+      res = await fetch(`${API_PREFIX}${path}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } else {
+      clearTokens();
+      throw new ApiError(401, "Session expired. Please sign in again.");
+    }
+  }
 
   if (!res.ok || !res.body) {
     const err = await res.json().catch(() => ({}));
@@ -266,16 +283,22 @@ async function streamFetch(
           }
         }
 
-        if (eventType === "meta") {
+         if (eventType === "meta") {
           yield { type: "meta", data: JSON.parse(data) as StreamMeta };
         } else if (eventType === "delta") {
           const payload = JSON.parse(data) as { text: string };
           yield { type: "delta", data: payload.text };
+        } else if (eventType === "token") {
+          const payload = JSON.parse(data) as { text: string };
+          yield { type: "token", data: payload.text };
         } else if (eventType === "status") {
           const payload = JSON.parse(data) as { text: string };
           yield { type: "status", data: payload.text };
         } else if (eventType === "done") {
           yield { type: "done" };
+        } else if (eventType === "error") {
+          const payload = JSON.parse(data) as { error: string };
+          throw new ApiError(500, payload.error);
         }
       }
     }
@@ -298,10 +321,19 @@ async function tryRefreshToken(): Promise<boolean> {
 
     const data: AuthResponse = await res.json();
     setTokens(data.access_token, data.refresh_token);
+    // Notify listeners (e.g. useProfile) that tokens were refreshed
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("auth:tokens-updated"));
+    }
     return true;
   } catch {
     return false;
   }
+}
+
+/** Public wrapper so hooks like useProfile can trigger a refresh. */
+export async function tryRefreshTokenPublic(): Promise<boolean> {
+  return tryRefreshToken();
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +476,55 @@ export async function refineTripStream(
   refinementType: string,
 ): Promise<AsyncGenerator<StreamEvent, void, void>> {
   return streamFetch(`/trips/${tripId}/refine/stream`, {
+    refinement_type: refinementType,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Token Streaming (character-by-character for instant feel)
+// ---------------------------------------------------------------------------
+
+export async function startTripTokenStream(
+  prompt: string,
+): Promise<AsyncGenerator<StreamEvent, void, void>> {
+  // backend currently doesn't have /start/token-stream, 
+  // but it has /start/stream which chunks text.
+  // For consistency, let's use the available stream endpoints.
+  return streamFetch("/trips/start/stream", { prompt });
+}
+
+export async function clarifyTripTokenStream(
+  tripId: string,
+  answers: string,
+): Promise<AsyncGenerator<StreamEvent, void, void>> {
+  return streamFetch(`/trips/${tripId}/clarify/token-stream`, { answers });
+}
+
+export async function proceedTripTokenStream(
+  tripId: string,
+  proceed: boolean,
+): Promise<AsyncGenerator<StreamEvent, void, void>> {
+  return streamFetch(`/trips/${tripId}/proceed/token-stream`, { proceed });
+}
+
+export async function confirmAssumptionsTokenStream(
+  tripId: string,
+  confirmed: boolean,
+  modifications?: string,
+  additionalInterests?: string,
+): Promise<AsyncGenerator<StreamEvent, void, void>> {
+  return streamFetch(`/trips/${tripId}/assumptions/token-stream`, {
+    confirmed,
+    modifications: modifications || null,
+    additional_interests: additionalInterests || null,
+  });
+}
+
+export async function refineTripTokenStream(
+  tripId: string,
+  refinementType: string,
+): Promise<AsyncGenerator<StreamEvent, void, void>> {
+  return streamFetch(`/trips/${tripId}/refine/token-stream`, {
     refinement_type: refinementType,
   });
 }

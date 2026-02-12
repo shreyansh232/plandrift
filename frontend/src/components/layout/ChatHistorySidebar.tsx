@@ -121,7 +121,10 @@ export function ChatHistorySidebar({
             {/* New Plan Button */}
             <div className={`pb-4 flex ${isCollapsed ? 'justify-center px-0' : 'px-2'}`}>
               <button
-                onClick={() => router.push("/trip")}
+                onClick={() => {
+                  // Force a full page navigation to reset all state
+                  window.location.href = "/trip";
+                }}
                 className={`
                   flex items-center bg-accent text-white hover:bg-accent/90 transition-all 
                   shadow-sm hover:shadow-md rounded-xl cursor-pointer

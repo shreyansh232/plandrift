@@ -3,9 +3,13 @@
 import json
 import logging
 from typing import Any
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-from ddgs import DDGS
+# Import the multi-provider web search
+from app.agent.web_search import (
+    web_search,
+    execute_tool,
+    format_search_results,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,89 +56,5 @@ TIPS FOR BETTER PRICE RESULTS:
 ]
 
 
-def web_search(query: str, num_results: int = 5) -> list[dict[str, str]]:
-    """Search the web using DuckDuckGo.
-
-    Args:
-        query: Search query string.
-        num_results: Number of results to return (max 10).
-
-    Returns:
-        List of search results with title, url, and snippet.
-    """
-    num_results = min(num_results, 5)
-    logger.info(f"[WEB SEARCH] Query: {query}")
-
-    try:
-
-        def _run() -> list[dict]:
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, max_results=num_results))
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_run)
-            results = future.result(timeout=5)
-
-        logger.info(f"[WEB SEARCH] Found {len(results)} results for: {query}")
-        return [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("href", ""),
-                "snippet": r.get("body", ""),
-            }
-            for r in results
-        ]
-    except TimeoutError:
-        logger.warning(f"[WEB SEARCH] Timeout for query: {query}")
-        return [{"error": "Search timed out. Proceed with estimates."}]
-    except Exception as e:
-        logger.error(f"[WEB SEARCH] Error for query '{query}': {str(e)}")
-        return [{"error": f"Search failed: {str(e)}"}]
-
-
-def execute_tool(tool_name: str, arguments: dict[str, Any]) -> str:
-    """Execute a tool by name with given arguments.
-
-    Args:
-        tool_name: Name of the tool to execute.
-        arguments: Tool arguments.
-
-    Returns:
-        JSON string of tool results.
-    """
-    if tool_name == "web_search":
-        query = arguments.get("query", "")
-        logger.info(f"[TOOL CALL] Executing {tool_name} with query: {query}")
-        results = web_search(
-            query=query,
-            num_results=arguments.get("num_results", 5),
-        )
-        return json.dumps(results, indent=2)
-
-    logger.warning(f"[TOOL CALL] Unknown tool requested: {tool_name}")
-    return json.dumps({"error": f"Unknown tool: {tool_name}"})
-
-
-def format_search_results(results: list[dict[str, str]]) -> str:
-    """Format search results for display.
-
-    Args:
-        results: List of search result dicts.
-
-    Returns:
-        Formatted string for display.
-    """
-    if not results:
-        return "No results found."
-
-    if "error" in results[0]:
-        return f"Search error: {results[0]['error']}"
-
-    lines = []
-    for i, r in enumerate(results, 1):
-        lines.append(f"{i}. **{r['title']}**")
-        lines.append(f"   {r['snippet']}")
-        lines.append(f"   Source: {r['url']}")
-        lines.append("")
-
-    return "\n".join(lines)
+# Re-export for backward compatibility
+__all__ = ["TOOL_DEFINITIONS", "web_search", "execute_tool", "format_search_results"]

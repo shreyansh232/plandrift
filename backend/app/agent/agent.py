@@ -1,11 +1,17 @@
 """TravelAgent - Main orchestrator for the travel planning conversation."""
 
 import logging
-from typing import Callable, Optional
+from typing import Callable, Optional, Iterator
 
 from app.agent.ai_client import AIClient, DEFAULT_MODEL, FAST_MODEL
 from app.agent.graph import build_agent_graph
-from app.agent.models import ConversationState
+from app.agent.models import ConversationState, Phase
+from app.agent.phases import (
+    clarification,
+    feasibility,
+    planning,
+    refinement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -204,3 +210,81 @@ class TravelAgent:
         """
         result = self._run_graph("refine", {"refinement_type": refinement_type})
         return result["response"]
+
+    # ==================== STREAMING METHODS ====================
+
+    def start_stream(self, user_prompt: str) -> Iterator[str]:
+        """Start a new trip planning conversation with token streaming."""
+        self._emit_status("Understanding your request...")
+        return clarification.handle_start_stream(
+            self.client, self.state, user_prompt, self.language_code
+        )
+
+    def process_clarification_stream(self, answers: str) -> Iterator[str]:
+        """Process clarification answers with token streaming."""
+        self._emit_status("Analyzing your answers...")
+        return clarification.process_clarification_stream(
+            self.client,
+            self.state,
+            answers,
+            self._initial_extraction,
+            self.language_code,
+            on_status=self._emit_status,
+        )
+
+    def confirm_proceed_stream(self, proceed: bool) -> Iterator[str]:
+        """Handle proceed decision with token streaming."""
+        from app.agent.phases import assumptions
+
+        if not proceed:
+            yield "Trip planning cancelled. Let me know if you'd like to try something else."
+            return
+
+        self.state.phase = Phase.ASSUMPTIONS
+        self._emit_status("Planning your trip...")
+
+        yield from assumptions.generate_assumptions_stream(
+            self.fast_client, self.state, self.language_code
+        )
+
+    def confirm_assumptions_stream(
+        self,
+        confirmed: bool,
+        modifications: Optional[str] = None,
+        additional_interests: Optional[str] = None,
+    ) -> Iterator[str]:
+        """Handle assumptions confirmation with token streaming."""
+        from app.agent.phases import assumptions
+
+        if not confirmed and not modifications:
+            yield "Please let me know what changes you'd like to make."
+            return
+
+        # If user has modifications or additional interests, we might need more research
+        if modifications or additional_interests:
+            self._emit_status("Researching your preferences...")
+            interests = f"{modifications or ''} {additional_interests or ''}".strip()
+            self.user_interests.append(interests)
+
+            # In streaming mode, we'll first generate updated assumptions then proceed to plan
+            # Or we can just jump to plan generation with these interests incorporated.
+            # Let's jump to plan generation for a smoother experience.
+
+        self._emit_status("Creating your itinerary...")
+        self.state.phase = Phase.PLANNING
+        yield from planning.generate_plan_stream(
+            self.client,
+            self.state,
+            self.search_results,
+            self.user_interests,
+            on_tool_call=self._handle_tool_call,
+            language_code=self.language_code,
+            on_status=self._emit_status,
+        )
+
+    def refine_plan_stream(self, refinement_type: str) -> Iterator[str]:
+        """Refine the plan with token streaming."""
+        self._emit_status(f"Making it {refinement_type}...")
+        return refinement.refine_plan_stream(
+            self.client, self.state, refinement_type, self.language_code
+        )

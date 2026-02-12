@@ -23,6 +23,8 @@ dependencies = [
     "openai>=1.12.0",
     # Web search
     "ddgs>=8.0.0",
+    "requests>=2.31.0",
+    "tavily-python>=0.3.0",
     # Environment
     "python-dotenv>=1.0.0",
     # SSE streaming
@@ -33,6 +35,7 @@ dependencies = [
     "pyjwt>=2.10.1",
     "authlib>=1.6.6",
     "itsdangerous>=2.2.0",
+    "langchain-core>=0.3.0",
     "langgraph>=1.0.8",
 ]
 

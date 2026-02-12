@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Compass, Shield, Zap, Globe } from "lucide-react";
 import Image from "next/image";
@@ -14,6 +14,53 @@ const Home = () => {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const { user, loading, signOut } = useProfile();
+
+  // Typewriter effect
+  const [placeholder, setPlaceholder] = useState("");
+  
+  useEffect(() => {
+    const texts = [
+      "Plan a trip to Chicago from NYC for a week with a $1,500 budget...",
+      "A 10-day hiking adventure in Switzerland starting from Zurich...",
+      "Romantic getaway to Kyoto in autumn with traditional stays...",
+    ];
+    let loopNum = 0;
+    let isDeleting = false;
+    let txt = "";
+    
+    // Using a recursive timeout approach
+    let timer: NodeJS.Timeout;
+
+    const tick = () => {
+      const i = loopNum % texts.length;
+      const fullText = texts[i];
+      let nextDelta = 100;
+
+      if (isDeleting) {
+        txt = fullText.substring(0, txt.length - 1);
+        nextDelta = 30; // Fast delete
+      } else {
+        txt = fullText.substring(0, txt.length + 1);
+        nextDelta = 50 + Math.random() * 50; // Natural typing speed
+      }
+
+      setPlaceholder(txt);
+
+      if (!isDeleting && txt === fullText) {
+        isDeleting = true;
+        nextDelta = 2000; // Pause at end
+      } else if (isDeleting && txt === "") {
+        isDeleting = false;
+        loopNum++;
+        nextDelta = 500; // Pause before next
+      }
+
+      timer = setTimeout(tick, nextDelta);
+    };
+
+    timer = setTimeout(tick, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +81,7 @@ const Home = () => {
         <ChatHistorySidebar user={user} loading={loading} onSignOut={signOut} />
       </Suspense>
       <SidebarInset className="flex-1 flex flex-col">
-        <Header />
+        <Header user={user} loading={loading} onSignOut={signOut} />
 
         <main className="flex-1 max-w-6xl mx-auto px-6 w-full">
           {/* Hero */}
@@ -73,7 +120,7 @@ const Home = () => {
                           handleAutoStart();
                         }
                       }}
-                      placeholder="Plan a trip to Chicago from NYC for a week with a $1,500 budget..."
+                      placeholder={placeholder}
                       aria-label="Describe your trip"
                       className="w-full h-24 resize-none text-base bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none font-body"
                     />
@@ -193,7 +240,7 @@ const Home = () => {
 
           {/* Footer */}
           <footer className="py-12 border-t border-border flex items-center justify-between text-sm text-muted-foreground">
-            <span className="font-display text-foreground">Planfirst</span>
+            <span className="font-semibold text-foreground">Planfirst</span>
             <span>© {new Date().getFullYear()} Planfirst. All rights reserved.</span>
           </footer>
         </main>

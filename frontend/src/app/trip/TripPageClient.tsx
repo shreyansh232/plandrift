@@ -44,7 +44,7 @@ export function TripPageClient() {
     <div className="h-svh w-full flex overflow-hidden bg-background">
       <ChatHistorySidebar user={user} loading={loading} onSignOut={signOut} />
       <SidebarInset className="flex flex-col h-full overflow-hidden relative">
-        <Header />
+        <Header user={user} loading={loading} onSignOut={signOut} />
         <ChatInterface
           key={initialTripId || "new"} // Force remount when switching trips
           initialPrompt={prompt || ""}

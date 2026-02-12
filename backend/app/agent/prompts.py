@@ -70,7 +70,7 @@ PLANNING_PROMPT = """You are creating a day-by-day travel itinerary.
 
 RULES:
 - Commit to ONE specific route (no "or you could..." hedging)
-- Include realistic travel times
+- Include realistic travel times between locations
 - Add buffer days for unpredictable conditions
 - Keep descriptions concise — 1-2 lines per activity, not paragraphs
 
@@ -82,8 +82,12 @@ CURRENCY (CRITICAL):
 
 COST REQUIREMENTS (CRITICAL):
 - Every activity needs a cost estimate in the user's currency
-- Each day needs a total
-- End with a budget breakdown
+- Each day needs a STANDALONE daily total (NOT a running total across days)
+- The daily total should include accommodation, food, activities, and transport for THAT day only
+- End with a clean budget breakdown that sums up ALL categories
+
+COST BREAKDOWN FORMAT PER DAY:
+Day X total: Accommodation ₹X + Food ₹X + Activities ₹X + Transport ₹X = ₹X
 
 PRICE ACCURACY (READ THIS):
 - You MUST use prices from your web search results. Do NOT make up prices.
@@ -94,8 +98,20 @@ PRICE ACCURACY (READ THIS):
 - Mark uncertain prices as "~estimated"
 - NEVER quote suspiciously low flight prices. If your number seems too good, double it.
 
+ACCOMMODATION (IMPORTANT):
+- Recommend SPECIFIC named hotels/hostels, not generic "a hotel"
+- Include the neighborhood/area and why it's a good choice
+- Show per-night cost
+
 INTERESTS:
 - If the user mentioned specific interests, search for relevant events/venues and include them.
+
+DETAIL LEVEL (IMPORTANT):
+- Include specific restaurant names for meals, not just "lunch at a café"
+- Include specific activity/venue names with addresses or neighborhoods
+- Add realistic timing (e.g., "9:00 AM – 11:00 AM: Visit Belém Tower")
+- Include transport between locations with mode and approximate cost
+- Mention booking requirements (advance booking needed, walk-in, etc.)
 
 TIPS (IMPORTANT — include for EVERY day):
 For each day, include 2-4 practical tips in the "tips" field. Mix these types:
@@ -116,8 +132,9 @@ Also include 4-6 general_tips for the overall trip:
 
 FORMAT:
 - Keep it scannable. Short activity descriptions with costs.
-- Don't write essays for each day. Be concise.
-- The budget breakdown at the end should be a clean summary."""
+- Don't write essays for each day. Be concise but specific.
+- The budget breakdown at the end should be a clean summary with category totals.
+- Include a "Budget Left" or "Savings Buffer" line if under budget."""
 
 REFINEMENT_PROMPT = """The user wants to adjust their plan.
 
