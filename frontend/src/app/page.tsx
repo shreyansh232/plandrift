@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Compass, Shield, Zap, Globe } from "lucide-react";
 import Image from "next/image";
@@ -30,7 +30,9 @@ const Home = () => {
 
   return (
     <div className="min-h-svh w-full flex bg-background">
-      <ChatHistorySidebar user={user} loading={loading} onSignOut={signOut} />
+      <Suspense fallback={<div className="w-16 bg-[#FAFAF8]" />}>
+        <ChatHistorySidebar user={user} loading={loading} onSignOut={signOut} />
+      </Suspense>
       <SidebarInset className="flex-1 flex flex-col">
         <Header />
 
