@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     description: "Plan better trips, faster.",
     images: [
       {
-        url: "/og.png",
+        url: "https://planfirst.vercel.app/og.png",
         width: 1200,
         height: 630,
         alt: "Planfirst - AI That Plans Before You Do",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Planfirst",
     description: "Plan better trips, faster.",
-    images: ["/og.png"],
+    images: ["https://planfirst.vercel.app/og.png"],
   },
 };
 
