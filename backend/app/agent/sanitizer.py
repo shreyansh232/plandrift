@@ -155,6 +155,9 @@ def wrap_user_content(text: str, label: str = "user_input") -> str:
 
     This creates a clear boundary between trusted prompt instructions and
     untrusted user content, making it harder for injections to escape context.
+    
+    CRITICAL: This function neutralizes any attempt to close the tag from within
+    the user content (e.g., </user_input> inside the text).
 
     Args:
         text: Sanitized user text.
@@ -163,4 +166,15 @@ def wrap_user_content(text: str, label: str = "user_input") -> str:
     Returns:
         Delimited string.
     """
-    return f"<{label}>\n{text}\n</{label}>"
+    # Defensive: ensure label is safe (alphanumeric/underscore)
+    safe_label = re.sub(r"[^a-zA-Z0-9_]", "", label)
+    if not safe_label:
+        safe_label = "user_content"
+    
+    # Neutralize closing tags in the text to prevent delimiter breakouts
+    # e.g., "</user_input>" -> "[ESCAPED_user_input_TAG]"
+    # Use regex to catch variations like "</  user_input >"
+    pattern = re.compile(f"</\\s*{re.escape(safe_label)}\\s*>", re.IGNORECASE)
+    text = pattern.sub(f"[ESCAPED_{safe_label}_TAG]", text)
+        
+    return f"<{safe_label}>\n{text}\n</{safe_label}>"

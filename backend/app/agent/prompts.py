@@ -75,7 +75,7 @@ RULES:
 - Keep descriptions concise — 1-2 lines per activity, not paragraphs
 - DON'T GIVE HOUR BY HOUR TIMELINE. DIVIDE THE DAY INTO MORNING, AFTERNOON, and EVENING.
 - Do NOT use bolding or markdown asterisks (**) for prices or activity names. Keep text clean.
-- FLIGHT COSTS: Interpret searched flight costs as round-trip per-person unless specified otherwise.
+- FLIGHT COSTS: Interpret searched flight costs as round-trip per-person unless specified otherwise. ALWAYS INCLUDE THEM WHERE REQUIRED.
 
 CURRENCY (CRITICAL):
 - ALL prices MUST be in the user's budget currency (the currency they mentioned).
@@ -112,7 +112,7 @@ INTERESTS:
 DETAIL LEVEL (IMPORTANT):
 - Include specific restaurant names for meals, not just "lunch at a café"
 - Include specific activity/venue names with addresses or neighborhoods
-- Add realistic timing (e.g., "9:00 AM – 11:00 AM: Visit Belém Tower")
+- Add operating hours (especially closing times) for museums/attractions (e.g., "Open 10 AM - 5 PM") 
 - Include transport between locations with mode and approximate cost
 - Mention booking requirements (advance booking needed, walk-in, etc.)
 
@@ -209,82 +209,83 @@ def get_language_instruction(language_code: str) -> str:
     return f"\n\nLANGUAGE PREFERENCE: The user prefers to communicate in {lang_name} ({language_code}). ALL your responses MUST be in {lang_name}."
 
 
-EXAMPLE_ITINERARY = """5-Day Itinerary for Switzerland Adventure
-Day 1: Arrival in Zurich
-Morning: Arrive at Zurich Airport. Take a train to Zurich Hauptbahnhof (Main Station) (30 min). Estimated cost: ₹1,000.
-Noon: Check in at Hotel Adler, located in the Old Town. Large family room: ₹15,000/night.
-Afternoon: Explore Bahnhofstrasse, one of the world's most exclusive shopping streets. Free activity.
-Evening: Dinner at Swiss Chuchi Restaurant for traditional fondue. Estimated cost: ₹4,000.
+
+EXAMPLE_ITINERARY = """5-Day Itinerary for Japan Adventure
+Day 1: Arrival in Tokyo
+Morning: Arrive at Narita International Airport. Take the Narita Express to Tokyo Station (1 hour). Estimated cost: $30.
+Noon: Check in at Shinjuku Granbell Hotel, located in the lively Shinjuku area. Cost: $150/night.
+Afternoon: Explore the Shinjuku Gyoen National Garden, famous for cherry blossoms. Entry fee: $5.
+Evening: Dinner at Omoide Yokocho, a narrow alley with various food stalls. Estimated cost: $20.
 
 Tips:
-- Buy a Zurich Card for unlimited public transport for 24 hours (₹1,500).
-- Try the chocolate at Lindt Chocolate Shop nearby.
-- Most shops close by 6 PM, plan accordingly.
-Day 1 total: Accommodation ₹15,000 + Food ₹4,000 + Activities ₹1,000 + Transport ₹1,000 = ₹21,000
+- Purchase a Suica card for convenient travel on trains and buses.
+- Try the yakitori at Omoide Yokocho; it's a must!
+- Most shops close by 8 PM, plan your shopping accordingly.
+Day 1 total: Accommodation $150 + Food $20 + Activities $5 + Transport $30 = $205
 
-Day 2: Lucerne Day Trip
-Morning: Travel to Lucerne via train (1 hour). Estimated cost: ₹1,200.
-Noon: Visit the Chapel Bridge and Water Tower. Free activity.
-Afternoon: Lunch at Wirtshaus Galliker (try local specialties). Estimated cost: ₹3,000.
-Evening: Explore Lake Lucerne with a boat cruise (1 hour). Estimated cost: ₹3,500. Return to Zurich. Estimated transport cost: ₹1,200.
-
-Tips:
-- Buy a round-trip train ticket in advance for discounts.
-- Don't miss the views from the Lion Monument, nearby.
-- Always check the weather before planning a boat trip.
-Day 2 total: Accommodation ₹0 (already paid) + Food ₹3,000 + Activities ₹3,500 + Transport ₹3,600 = ₹10,100
-
-Day 3: Interlaken Adventure
-Morning: Check out and travel to Interlaken by train (2 hours). Estimated cost: ₹2,500.
-Noon: Check in at Hotel Interlaken, family room: ₹18,000/night.
-Afternoon: Take a stroll at Harder Kulm (cable car ride). Estimated cost: ₹4,000.
-Evening: Dinner at Restaurant Taverne, enjoy Swiss cuisine. Estimated cost: ₹4,000.
+Day 2: Tokyo Exploration
+Morning: Visit the historic Asakusa district and Senso-ji Temple (free entry).
+Noon: Lunch at Nakamise Street, where you can try fresh melon bread. Estimated cost: $10.
+Afternoon: Head to Ueno Park to see cherry blossoms. Free entry.
+Evening: Dinner at Ippudo Ramen in Akihabara. Estimated cost: $15.
 
 Tips:
-- Book cable car tickets online to save time.
-- Visit the Aare River for stunning views, it's free!
-- Remember to carry cash; some places may not accept cards.
-Day 3 total: Accommodation ₹18,000 + Food ₹4,000 + Activities ₹4,000 + Transport ₹2,500 = ₹28,500
+- Take the subway for quick transport; a day pass is $7.
+- Don't miss the street performers in Ueno Park.
+- Arrive early at Senso-ji for fewer crowds.
+Day 2 total: Accommodation $0 (already paid) + Food $25 + Activities $0 + Transport $7 = $32
 
-Day 4: Jungfraujoch Excursion
-Morning: Early train to Jungfraujoch, the "Top of Europe" (2 hours). Estimated cost: ₹5,000.
-Noon: Explore the Ice Palace and Sphinx Observatory. Estimated cost: ₹3,000.
-Afternoon: Lunch at Aletsch Restaurant. Estimated cost: ₹4,000.
-Evening: Return to Interlaken. Estimated transport cost: ₹2,500.
-
-Tips:
-- Start early to maximize your time at Jungfraujoch.
-- Wear warm clothing; it can be very cold at high altitudes.
-- Bring a camera for stunning photo opportunities!
-Day 4 total: Accommodation ₹0 (already paid) + Food ₹4,000 + Activities ₹3,000 + Transport ₹7,500 = ₹14,500
-
-Day 5: Departure from Zurich
-Morning: Check out and travel back to Zurich (2 hours). Estimated cost: ₹2,500.
-Noon: Last-minute shopping at Niederdorf. Free activity.
-Afternoon: Lunch at Raclette Stube. Estimated cost: ₹4,000.
-Evening: Head to Zurich Airport for departure. Estimated transport cost: ₹1,000.
+Day 3: Day Trip to Kyoto
+Morning: Take the Shinkansen (bullet train) from Tokyo to Kyoto (2 hours). Estimated cost: $100.
+Noon: Visit Kinkaku-ji (Golden Pavilion). Entry fee: $5.
+Afternoon: Lunch at Yudofu Sagano, known for Kyoto-style tofu. Estimated cost: $20.
+Evening: Stroll through Gion district, famous for geisha culture. Free activity. Return to Tokyo. Estimated transport cost: $100.
 
 Tips:
-- Keep an eye on your flight time to avoid rush.
-- Use up any remaining Swiss Francs for souvenirs.
-- Don't forget to try raclette if you haven't yet!
-Day 5 total: Accommodation ₹0 (already paid) + Food ₹4,000 + Activities ₹0 + Transport ₹3,500 = ₹7,500
+- Book Shinkansen tickets in advance for discounts.
+- Look for matcha-flavored treats in Gion; they're delicious!
+- Keep an eye out for traditional tea houses.
+Day 3 total: Accommodation $0 (already paid) + Food $20 + Activities $5 + Transport $200 = $225
+
+Day 4: Cultural Immersion in Tokyo
+Morning: Participate in a traditional tea ceremony at Hamarikyu Gardens. Estimated cost: $30.
+Noon: Lunch at Tsukiji Outer Market, famous for fresh seafood. Estimated cost: $25.
+Afternoon: Visit the Mori Art Museum in Roppongi. Entry fee: $15.
+Evening: Dinner at Gyu-Katsu Kyoto Katsugyu for a unique beef experience. Estimated cost: $30.
+
+Tips:
+- Pre-book the tea ceremony to secure your spot.
+- Try the grilled seafood at Tsukiji; it's a local favorite.
+- Enjoy the city views from the Mori Art Museum's observation deck.
+Day 4 total: Accommodation $0 (already paid) + Food $55 + Activities $45 + Transport $0 = $100
+
+Day 5: Departure from Tokyo
+Morning: Last-minute shopping at Harajuku's Takeshita Street. Free activity.
+Noon: Lunch at Kawaii Monster Cafe for a unique dining experience. Estimated cost: $30.
+Afternoon: Relax at Yoyogi Park before departing. Free activity.
+Evening: Take the Narita Express back to the airport (1 hour). Estimated cost: $30.
+
+Tips:
+- Arrive at the airport at least 3 hours before your flight.
+- Use your Suica card for easy access to public transport.
+- Check out the quirky shops on Takeshita Street.
+Day 5 total: Accommodation $0 (already paid) + Food $30 + Activities $0 + Transport $30 = $60
 
 Budget Breakdown
-Flights (Round-trip): ₹60,000
-Day 1: ₹21,000
-Day 2: ₹10,100
-Day 3: ₹28,500
-Day 4: ₹14,500
-Day 5: ₹7,500
-Total Spending: ₹1,41,600
-Budget Left: ₹1,58,400
+Flights (Round-trip): $1,500
+Day 1: $205
+Day 2: $32
+Day 3: $225
+Day 4: $100
+Day 5: $60
+Total Spending: $2,122
+Budget Left: $878
 
 General Tips for Your Trip
-- Ensure passports are valid for at least 6 months beyond your departure.
-- Buy a local SIM card at the airport for data and calls.
-- Respect local customs; greetings and polite behavior are appreciated.
-- Download apps like SBB Mobile for train schedules.
-- Exchange some currency at home for better rates.
-- Pack layers, including warm clothing and waterproof jackets for unpredictable weather.
+- Ensure your passport is valid for at least six months beyond your departure date.
+- Purchase a local SIM card at the airport for data and calls.
+- Bow slightly when greeting; it's a sign of respect in Japan.
+- Download apps like Google Maps and Hyperdia for navigation.
+- Exchange some currency at home for better rates; ATMs in Japan may not accept foreign cards.
+- Pack layers, including a lightweight raincoat and comfortable walking shoes for exploring.
 """
