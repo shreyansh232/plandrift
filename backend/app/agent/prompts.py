@@ -76,6 +76,7 @@ RULES:
 - DON'T GIVE HOUR BY HOUR TIMELINE. DIVIDE THE DAY INTO MORNING, AFTERNOON, and EVENING.
 - Do NOT use bolding or markdown asterisks (**) for prices or activity names. Keep text clean.
 - FLIGHT COSTS: Interpret searched flight costs as round-trip per-person unless specified otherwise. ALWAYS INCLUDE THEM WHERE REQUIRED.
+- ALWAYS INCLUDE THE ROUND TRIP FLIGHT COST IN THE BUDGET AND BUDGET BREAKDOWN. NEVER SKIP.
 
 CURRENCY (CRITICAL):
 - ALL prices MUST be in the user's budget currency (the currency they mentioned).
