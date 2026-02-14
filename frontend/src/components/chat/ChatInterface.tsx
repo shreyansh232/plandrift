@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import { ArrowUp, Sparkles, Loader2, Plane, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -432,19 +433,36 @@ export function ChatInterface({
     }
   }, [initialTripId, storageKey]);
 
+  // ---- SWR Integration for Instant Navigation ----
+
+  const { data: tripMessages } = useSWR(
+    initialTripId ? ['messages', initialTripId] : null,
+    () => getTripMessages(initialTripId!),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000, // Cache for 1 minute
+    }
+  );
+
+  const { data: tripData } = useSWR(
+    initialTripId ? ['trip', initialTripId] : null,
+    () => getTrip(initialTripId!),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000,
+    }
+  );
+
   useEffect(() => {
     if (!initialTripId) return;
-    let mounted = true;
-    (async () => {
-      try {
-        const [history, tripDetail] = await Promise.all([
-          getTripMessages(initialTripId),
-          getTrip(initialTripId),
-        ]);
-        if (!mounted) return;
+    
+    // If we have cached data (SWR), use it immediately!
+    if (tripMessages && tripData) {
         setTripId(initialTripId);
+
+        // Map logic removed as components appear missing in current state
         
-        const mapped = history.map((msg, idx) => ({
+        const mapped = tripMessages.map((msg, idx) => ({
           id: msg.id || `${msg.created_at}-${idx}`,
           role: msg.role as Message["role"],
           content: msg.content,
@@ -452,27 +470,14 @@ export function ChatInterface({
         }));
         
         if (mapped.length > 0) {
-          setMessages(mapped);
-        } else {
-          const storageKey = `planfirst_chat_trip_${initialTripId}`;
-          const stored = localStorage.getItem(storageKey);
-          if (stored) {
-            try {
-              const parsed = JSON.parse(stored) as {
-                messages?: Message[];
-              };
-              if (parsed.messages && parsed.messages.length > 0) {
-                setMessages(parsed.messages);
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          }
+           setMessages(mapped);
         }
         
-        const phase = tripDetail.latest_version?.phase;
-        const risk = tripDetail.latest_version
+        // Determine phase/action
+        const phase = tripData.latest_version?.phase;
+        const risk = tripData.latest_version
           ?.risk_assessment_json as Record<string, unknown> | null;
+          
         if (phase === "feasibility") {
           const overall = risk?.overall_feasible;
           const highRisk = overall === false;
@@ -485,38 +490,14 @@ export function ChatInterface({
         } else {
           setNextAction("text_input");
         }
+        
         startedRef.current = true;
         setRestored(true);
-      } catch (err) {
-        if (!mounted) return;
-        
-        if (err instanceof ApiError && err.status === 401) {
-          clearTokens();
-          router.push("/login");
-          return;
-        }
-        
-        const storageKey = `planfirst_chat_trip_${initialTripId}`;
-        const stored = localStorage.getItem(storageKey);
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored) as {
-              messages?: Message[];
-            };
-            if (parsed.messages && parsed.messages.length > 0) {
-              setMessages(parsed.messages);
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        }
-        setRestored(true);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [initialTripId]);
+    } else {
+       // Optionally handle loading state here or fall back to local storage if needed
+       // For now, we rely on SWR eventual consistency
+    }
+  }, [initialTripId, tripMessages, tripData]);
 
   useEffect(() => {
     if (!restored) return;

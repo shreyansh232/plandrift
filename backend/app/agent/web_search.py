@@ -14,6 +14,8 @@ import requests
 from ddgs import DDGS
 from dotenv import load_dotenv
 
+from app.cache import cache
+
 # Load .env from project root (parent of backend/)
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
 if env_path.exists():
@@ -87,6 +89,7 @@ if not TAVILY_API_KEY:
 #         return None
 
 
+@cache.memoize(expire=86400)  # Cache for 24 hours
 def tavily_search(
     query: str, num_results: int = 5, timeout: int = 3
 ) -> list[dict[str, str]] | None:
@@ -143,6 +146,7 @@ def tavily_search(
         return None
 
 
+@cache.memoize(expire=86400)  # Cache for 24 hours
 def ddgs_search(
     query: str, num_results: int = 5, timeout: int = 5
 ) -> list[dict[str, str]] | None:

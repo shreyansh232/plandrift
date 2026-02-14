@@ -77,3 +77,6 @@ backend_startup.log
 # Docker
 .docker/
 gemini.md
+
+# Local Cache
+.cache/

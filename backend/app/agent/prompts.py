@@ -77,6 +77,7 @@ RULES:
 - Do NOT use bolding or markdown asterisks (**) for prices or activity names. Keep text clean.
 - FLIGHT COSTS: Interpret searched flight costs as round-trip per-person unless specified otherwise. ALWAYS INCLUDE THEM WHERE REQUIRED.
 - ALWAYS INCLUDE THE ROUND TRIP FLIGHT COST IN THE BUDGET AND BUDGET BREAKDOWN. NEVER SKIP.
+- FLIGHT COST VISIBILITY: Mention the round-trip flight cost clearly in the trip summary at the beginning of the plan.
 
 CURRENCY (CRITICAL):
 - ALL prices MUST be in the user's budget currency (the currency they mentioned).
@@ -101,11 +102,15 @@ PRICE ACCURACY (READ THIS):
 - If search results don't have an exact price, estimate CONSERVATIVELY (round UP).
 - Mark uncertain prices as "~estimated"
 - NEVER quote suspiciously low flight prices. If your number seems too good, double it.
+- BUDGET ADHERENCE: You must ensure the total cost (Flights + Accommodation + Food + Activities + Transport) fits within the user's total budget. 
+- REDUCING COSTS: If the flight takes up more than 60% of the total budget, you MUST recommend cheaper accommodation (hostels, budget hotels) and focus on free activities to ensure the total remains within the user's limit.
+- CALCULATE TOTALS: Double check your math. The sum of all daily totals plus flights must be less than or equal to the user's mentioned budget.
 
 ACCOMMODATION (IMPORTANT):
 - Recommend SPECIFIC named hotels/hostels, not generic "a hotel"
 - Include the neighborhood/area and why it's a good choice
 - Show per-night cost
+- If the user mentioned a specific stay (e.g., "staying with a friend", "staying at the venue", "already booked X"), DO NOT recommend another hotel for those days and set accommodation cost to 0.
 
 INTERESTS:
 - If the user mentioned specific interests, search for relevant events/venues and include them.
@@ -213,74 +218,74 @@ def get_language_instruction(language_code: str) -> str:
 
 EXAMPLE_ITINERARY = """5-Day Itinerary for Japan Adventure
 Day 1: Arrival in Tokyo
-Morning: Arrive at Narita International Airport. Take the Narita Express to Tokyo Station (1 hour). Estimated cost: $30.
-Noon: Check in at Shinjuku Granbell Hotel, located in the lively Shinjuku area. Cost: $150/night.
-Afternoon: Explore the Shinjuku Gyoen National Garden, famous for cherry blossoms. Entry fee: $5.
-Evening: Dinner at Omoide Yokocho, a narrow alley with various food stalls. Estimated cost: $20.
+Morning: Arrive at Narita International Airport. Take the Narita Express to Tokyo Station (1 hour). Estimated cost: [CURRENCY]30.
+Noon: Check in at Shinjuku Granbell Hotel, located in the lively Shinjuku area. Cost: [CURRENCY]150/night.
+Afternoon: Explore the Shinjuku Gyoen National Garden, famous for cherry blossoms. Entry fee: [CURRENCY]5.
+Evening: Dinner at Omoide Yokocho, a narrow alley with various food stalls. Estimated cost: [CURRENCY]20.
 
 Tips:
 - Purchase a Suica card for convenient travel on trains and buses.
 - Try the yakitori at Omoide Yokocho; it's a must!
 - Most shops close by 8 PM, plan your shopping accordingly.
-Day 1 total: Accommodation $150 + Food $20 + Activities $5 + Transport $30 = $205
+Day 1 total: Accommodation [CURRENCY]150 + Food [CURRENCY]20 + Activities [CURRENCY]5 + Transport [CURRENCY]30 = [CURRENCY]205
 
 Day 2: Tokyo Exploration
 Morning: Visit the historic Asakusa district and Senso-ji Temple (free entry).
-Noon: Lunch at Nakamise Street, where you can try fresh melon bread. Estimated cost: $10.
+Noon: Lunch at Nakamise Street, where you can try fresh melon bread. Estimated cost: [CURRENCY]10.
 Afternoon: Head to Ueno Park to see cherry blossoms. Free entry.
-Evening: Dinner at Ippudo Ramen in Akihabara. Estimated cost: $15.
+Evening: Dinner at Ippudo Ramen in Akihabara. Estimated cost: [CURRENCY]15.
 
 Tips:
-- Take the subway for quick transport; a day pass is $7.
+- Take the subway for quick transport; a day pass is [CURRENCY]7.
 - Don't miss the street performers in Ueno Park.
 - Arrive early at Senso-ji for fewer crowds.
-Day 2 total: Accommodation $0 (already paid) + Food $25 + Activities $0 + Transport $7 = $32
+Day 2 total: Accommodation [CURRENCY]0 (already paid) + Food [CURRENCY]25 + Activities [CURRENCY]0 + Transport [CURRENCY]7 = [CURRENCY]32
 
 Day 3: Day Trip to Kyoto
-Morning: Take the Shinkansen (bullet train) from Tokyo to Kyoto (2 hours). Estimated cost: $100.
-Noon: Visit Kinkaku-ji (Golden Pavilion). Entry fee: $5.
-Afternoon: Lunch at Yudofu Sagano, known for Kyoto-style tofu. Estimated cost: $20.
-Evening: Stroll through Gion district, famous for geisha culture. Free activity. Return to Tokyo. Estimated transport cost: $100.
+Morning: Take the Shinkansen (bullet train) from Tokyo to Kyoto (2 hours). Estimated cost: [CURRENCY]100.
+Noon: Visit Kinkaku-ji (Golden Pavilion). Entry fee: [CURRENCY]5.
+Afternoon: Lunch at Yudofu Sagano, known for Kyoto-style tofu. Estimated cost: [CURRENCY]20.
+Evening: Stroll through Gion district, famous for geisha culture. Free activity. Return to Tokyo. Estimated transport cost: [CURRENCY]100.
 
 Tips:
 - Book Shinkansen tickets in advance for discounts.
 - Look for matcha-flavored treats in Gion; they're delicious!
 - Keep an eye out for traditional tea houses.
-Day 3 total: Accommodation $0 (already paid) + Food $20 + Activities $5 + Transport $200 = $225
+Day 3 total: Accommodation [CURRENCY]0 (already paid) + Food [CURRENCY]20 + Activities [CURRENCY]5 + Transport [CURRENCY]200 = [CURRENCY]225
 
 Day 4: Cultural Immersion in Tokyo
-Morning: Participate in a traditional tea ceremony at Hamarikyu Gardens. Estimated cost: $30.
-Noon: Lunch at Tsukiji Outer Market, famous for fresh seafood. Estimated cost: $25.
-Afternoon: Visit the Mori Art Museum in Roppongi. Entry fee: $15.
-Evening: Dinner at Gyu-Katsu Kyoto Katsugyu for a unique beef experience. Estimated cost: $30.
+Morning: Participate in a traditional tea ceremony at Hamarikyu Gardens. Estimated cost: [CURRENCY]30.
+Noon: Lunch at Tsukiji Outer Market, famous for fresh seafood. Estimated cost: [CURRENCY]25.
+Afternoon: Visit the Mori Art Museum in Roppongi. Entry fee: [CURRENCY]15.
+Evening: Dinner at Gyu-Katsu Kyoto Katsugyu for a unique beef experience. Estimated cost: [CURRENCY]30.
 
 Tips:
 - Pre-book the tea ceremony to secure your spot.
 - Try the grilled seafood at Tsukiji; it's a local favorite.
 - Enjoy the city views from the Mori Art Museum's observation deck.
-Day 4 total: Accommodation $0 (already paid) + Food $55 + Activities $45 + Transport $0 = $100
+Day 4 total: Accommodation [CURRENCY]0 (already paid) + Food [CURRENCY]55 + Activities [CURRENCY]45 + Transport [CURRENCY]0 = [CURRENCY]100
 
 Day 5: Departure from Tokyo
 Morning: Last-minute shopping at Harajuku's Takeshita Street. Free activity.
-Noon: Lunch at Kawaii Monster Cafe for a unique dining experience. Estimated cost: $30.
+Noon: Lunch at Kawaii Monster Cafe for a unique dining experience. Estimated cost: [CURRENCY]30.
 Afternoon: Relax at Yoyogi Park before departing. Free activity.
-Evening: Take the Narita Express back to the airport (1 hour). Estimated cost: $30.
+Evening: Take the Narita Express back to the airport (1 hour). Estimated cost: [CURRENCY]30.
 
 Tips:
 - Arrive at the airport at least 3 hours before your flight.
 - Use your Suica card for easy access to public transport.
 - Check out the quirky shops on Takeshita Street.
-Day 5 total: Accommodation $0 (already paid) + Food $30 + Activities $0 + Transport $30 = $60
+Day 5 total: Accommodation [CURRENCY]0 (already paid) + Food [CURRENCY]30 + Activities [CURRENCY]0 + Transport [CURRENCY]30 = [CURRENCY]60
 
 Budget Breakdown
-Flights (Round-trip): $1,500
-Day 1: $205
-Day 2: $32
-Day 3: $225
-Day 4: $100
-Day 5: $60
-Total Spending: $2,122
-Budget Left: $878
+Flights (Round-trip): [CURRENCY]1,500
+Day 1: [CURRENCY]205
+Day 2: [CURRENCY]32
+Day 3: [CURRENCY]225
+Day 4: [CURRENCY]100
+Day 5: [CURRENCY]60
+Total Spending: [CURRENCY]2,122
+Budget Left: [CURRENCY]878
 
 General Tips for Your Trip
 - Ensure your passport is valid for at least six months beyond your departure date.

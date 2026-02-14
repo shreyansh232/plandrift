@@ -139,6 +139,24 @@ def generate_plan(
         for a in state.assumptions.assumptions:
             assumptions_text += f"• {a}\n"
 
+    # Kick off flight search early if we have origin/destination
+    # This might have been done in agent.start(), but if not, do it here
+    if state.origin and state.destination:
+         # Try to extract year/month from constraints or date_context
+         flight_date_ctx = state.constraints.month_or_season if state.constraints else None
+         # We're inside generate_plan (non-streaming), so we don't have date_context variable available directly unless we call get_current_date_context()
+         if not flight_date_ctx:
+              flight_date_ctx = None
+              
+         # We aren't capturing the result here, just ensuring the future is submitted 
+         # in case it wasn't already. The agent.get_flight_costs() will retrieve it.
+         from app.agent.flight_search import search_flight_costs
+         # Note: Ideally this should be async or managed by the agent class, 
+         # but this is a stateless helper. We'll rely on the agent's pre-computation.
+         fc = search_flight_costs(state.origin, state.destination, flight_date_ctx)
+         if fc:
+             search_results.append(fc)
+
     interests_text = ""
     if user_interests:
         interests_text = "\n\nUser's interests:\n" + "\n".join(user_interests)

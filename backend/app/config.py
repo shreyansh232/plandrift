@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     openrouter_api_key: Optional[str] = (
         None  # API key for OpenRouter (Optional allows app to start without it)
     )
-    openrouter_model: str = "openai/gpt-4o-mini"
-    openrouter_model_fast: Optional[str] = "openai/gpt-4o-mini"
+    openrouter_model: str = "google/gemini-3-flash-preview"
+    openrouter_model_fast: Optional[str] = "google/gemini-3-flash-preview"
 
     # --- CORS ---
     # Comma-separated list of allowed origins. If unset, falls back to frontend_url.
