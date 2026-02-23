@@ -487,7 +487,7 @@ class TravelAgent:
             )
 
         stream = clarification.process_clarification_stream(
-            self.client,
+            self.fast_client,
             self.state,
             answers,
             self._initial_extraction,

@@ -1,4 +1,4 @@
-"""Hotel cost search using DuckDuckGo.
+"""Hotel cost search using shared web search providers.
 
 Searches for average hotel costs in destination
 to provide a baseline estimate for the planning phase.
@@ -8,10 +8,9 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
 
-from ddgs import DDGS
+from app.agent.web_search import web_search
 
 logger = logging.getLogger(__name__)
-
 _executor = ThreadPoolExecutor(max_workers=1)
 
 
@@ -44,23 +43,24 @@ def search_hotel_costs(
         # Construct query
         # "Search for hotels with average pricing"
         query = f"average {accommodation_type} prices in {destination} {date_str}"
-        
+
         # If we have a budget, we might want to check for "best value" or similar if budget is low
         # But generally "average price" gives good baseline data.
         if budget:
-             pass # logic to parse budget is complex, relying on 'average' as per instructions
+            pass  # logic to parse budget is complex, relying on 'average' as per instructions
 
         msg = f"[HOTEL SEARCH] Searching: {query}"
         logger.info(msg)
         print(f"\n\033[94m{msg}\033[0m")  # Blue color for visibility
 
         def _run() -> list[dict]:
-            with DDGS() as ddgs:
-                # Text search for costs
-                return list(ddgs.text(query, max_results=5))
+            # Uses Tavily as primary provider and DDG as fallback.
+            return web_search(query, num_results=5)
 
         future = _executor.submit(_run)
         results = future.result(timeout=6)
+        if results and "error" in results[0]:
+            return ""
 
         if not results:
             return ""
@@ -69,18 +69,18 @@ def search_hotel_costs(
         snippets = []
         for r in results:
             title = r.get("title", "")
-            body = r.get("body", "")
+            body = r.get("snippet", "")
             snippets.append(f"- {title}: {body}")
 
         summary = "\n".join(snippets)
         msg = f"[HOTEL SEARCH] Found {len(results)} results"
         logger.info(msg)
         print(f"\n\033[94m{msg}\033[0m")
-        
+
         context_msg = f"Hotel/Accommodation Cost Estimates Research ({destination}):\n"
         if budget:
             context_msg += f"(Context: User budget is {budget}, usually ~30% is spent on accommodation)\n"
-        
+
         return f"{context_msg}{summary}"
 
     except FuturesTimeoutError:
@@ -93,4 +93,3 @@ def search_hotel_costs(
         logger.error(msg)
         print(f"\n\033[94m{msg}\033[0m")
         return ""
-

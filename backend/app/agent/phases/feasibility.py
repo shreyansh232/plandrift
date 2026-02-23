@@ -3,13 +3,13 @@
 import logging
 import concurrent.futures
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Iterator, Tuple
+from typing import TYPE_CHECKING, Callable, Iterator
 
 from app.agent.formatters import format_constraints, format_risk_assessment
 from app.agent.models import ConversationState, Phase, RiskAssessment
 from app.agent.prompts import get_phase_prompt
-from app.agent.tools import TOOL_DEFINITIONS, execute_tool
 from app.agent.utils import get_current_date_context
+from app.agent.web_search import web_search
 
 if TYPE_CHECKING:
     from app.agent.ai_client import AIClient
@@ -28,7 +28,9 @@ def _parse_risk_bg(
 ) -> None:
     """Background task: parse streamed text into structured RiskAssessment."""
     try:
-        structured_prompt = f"Provide the structured RiskAssessment JSON for: {full_response}"
+        structured_prompt = (
+            f"Provide the structured RiskAssessment JSON for: {full_response}"
+        )
         risk = client.chat_structured(
             [
                 {"role": "system", "content": system_prompt},
@@ -47,9 +49,15 @@ def _quick_high_risk_check(text: str) -> bool:
     """Fast heuristic: check if response text mentions high risk indicators."""
     lowered = text.lower()
     high_indicators = [
-        "high risk", "strongly advise against", "not recommended",
-        "dangerous", "severe warning", "travel advisory",
-        "do not travel", "extreme caution", "life-threatening",
+        "high risk",
+        "strongly advise against",
+        "not recommended",
+        "dangerous",
+        "severe warning",
+        "travel advisory",
+        "do not travel",
+        "extreme caution",
+        "life-threatening",
     ]
     return any(indicator in lowered for indicator in high_indicators)
 
@@ -60,39 +68,74 @@ def _gather_research(
     on_tool_call: Callable[[str, dict], None] | None = None,
     language_code: str | None = None,
 ) -> str:
-    """Helper to gather current research info via web search."""
-    system_prompt = get_phase_prompt("feasibility", language_code)
+    """Gather current feasibility research via direct web search (Tavily first)."""
+    del client, language_code  # Maintained signature compatibility.
     constraints_text = format_constraints(state)
     date_context = get_current_date_context()
+    current_year = datetime.now().year
+    destination = (
+        state.constraints.destination if state.constraints else state.destination
+    )
+    month_or_season = (
+        state.constraints.month_or_season if state.constraints else None
+    ) or f"{current_year}"
 
-    search_prompt = f"""You need to evaluate the feasibility of this trip:
+    if not destination:
+        return ""
 
-{date_context}
-
-{constraints_text}
-
-Before providing your assessment, search for current information about:
-1. Current travel advisories or restrictions for the destination
-2. Weather/seasonal conditions for the specified travel period
-3. Any recent infrastructure or accessibility issues
-
-IMPORTANT: Use the CURRENT YEAR ({datetime.now().year}) in your search queries, not past years.
-
-Use the web_search tool to gather this information, then provide your risk assessment."""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": search_prompt},
+    queries = [
+        (
+            "travel_advisory",
+            f"{destination} travel advisory restrictions safety {current_year}",
+        ),
+        (
+            "weather",
+            f"{destination} weather {month_or_season} {current_year} travel conditions",
+        ),
+        (
+            "infrastructure",
+            f"{destination} transport strikes airport disruption infrastructure updates {current_year}",
+        ),
     ]
 
-    return client.chat_with_tools(
-        messages=messages,
-        tools=TOOL_DEFINITIONS,
-        tool_executor=execute_tool,
-        temperature=0.7,
-        max_tool_calls=1,
-        on_tool_call=on_tool_call,
-    )
+    lines = [
+        "Feasibility Research:",
+        date_context,
+        constraints_text,
+    ]
+
+    for label, query in queries:
+        if on_tool_call:
+            on_tool_call("web_search", {"query": query})
+        results = web_search(query, num_results=2)
+        if not results or "error" in results[0]:
+            lines.append(f"\n[{label}] Query: {query}\n- No reliable results found.")
+            continue
+
+        lines.append(f"\n[{label}] Query: {query}")
+        for item in results:
+            title = item.get("title", "").strip()
+            snippet = item.get("snippet", "").strip()
+            url = item.get("url", "").strip()
+            lines.append(f"- {title}: {snippet} ({url})")
+
+    return "\n".join(lines)
+
+
+def _append_research_when_ready(
+    future: concurrent.futures.Future,
+    search_results: list[str],
+) -> None:
+    """Background callback to persist feasibility research once completed."""
+    try:
+        result = future.result()
+        if result and result not in search_results:
+            search_results.append(result)
+            logger.info(
+                "Feasibility research appended asynchronously for planning reuse."
+            )
+    except Exception:
+        logger.exception("Deferred feasibility research collection failed")
 
 
 def run_feasibility_check(
@@ -149,12 +192,32 @@ def run_feasibility_check_stream(
     language_code: str | None = None,
 ) -> Iterator[str]:
     """Run feasibility check with token streaming."""
-    search_response = _gather_research(
-        client, state, on_tool_call=on_tool_call, language_code=language_code
+    # Start research immediately so planning can reuse it.
+    # Keep first-token latency low by bounding how long we wait here.
+    search_response = ""
+    research_future = _bg_executor.submit(
+        _gather_research,
+        client,
+        state,
+        on_tool_call,
+        language_code,
     )
-    search_results.append(search_response)
+    try:
+        search_response = research_future.result(timeout=2)
+    except concurrent.futures.TimeoutError:
+        logger.info(
+            "Feasibility research still running; continuing stream immediately."
+        )
+        research_future.add_done_callback(
+            lambda fut: _append_research_when_ready(fut, search_results)
+        )
+    except Exception:
+        logger.exception("Feasibility research failed; continuing without blocking.")
+    if search_response:
+        search_results.append(search_response)
 
-    system_prompt = get_phase_prompt("feasibility", language_code)
+    parse_system_prompt = get_phase_prompt("feasibility", language_code)
+    system_prompt = parse_system_prompt
     constraints_text = format_constraints(state)
 
     assessment_prompt = f"""Based on the information gathered, provide a detailed feasibility assessment and risk analysis for this trip:
@@ -164,7 +227,12 @@ def run_feasibility_check_stream(
 Research findings:
 {search_response}
 
-Be specific about weather, route, health, and infrastructure. Include a clear conclusion on whether it's safe and recommended."""
+Be specific about weather, route, health, and infrastructure. Include a clear conclusion on whether it's safe and recommended.
+
+OUTPUT FORMAT:
+- Return traveler-facing markdown with concise bullets and short paragraphs.
+- Highlight key labels in bold where useful.
+- Do NOT output raw JSON or schema-shaped key/value objects."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -177,7 +245,9 @@ Be specific about weather, route, health, and infrastructure. Include a clear co
         yield token
 
     # Fire-and-forget: parse risk assessment in background
-    _bg_executor.submit(_parse_risk_bg, client, system_prompt, full_response, state)
+    _bg_executor.submit(
+        _parse_risk_bg, client, parse_system_prompt, full_response, state
+    )
 
     # Quick heuristic check from streamed text (no LLM call needed)
     has_high_risk = _quick_high_risk_check(full_response)

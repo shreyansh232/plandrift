@@ -274,6 +274,21 @@ try {
 }
 ```
 
+## Architectural Principles (SOLID)
+
+To maintain a scalable and maintainable codebase, we follow SOLID principles:
+
+1.  **Single Responsibility (SRP)**: Each class/module should have one reason to change. 
+    - *Example*: Keep database models in `models.py` and business logic in `services/`.
+2.  **Open/Closed (OCP)**: Software entities should be open for extension but closed for modification. 
+    - *Example*: Use the `Phase` system in the agent to add new planning stages without modifying the core `TravelAgent` logic.
+3.  **Liskov Substitution (LSP)**: Subtypes must be substitutable for their base types.
+    - *Example*: Any search provider (Flight, Hotel) should adhere to the same interface.
+4.  **Interface Segregation (ISP)**: Clients should not be forced to depend on methods they do not use.
+    - *Example*: Use granular Pydantic schemas for different API endpoints rather than one giant "Trip" object.
+5.  **Dependency Inversion (DIP)**: Depend on abstractions, not concretions.
+    - *Example*: FastAPI's `Depends` system for injecting database sessions and authenticated users.
+
 ## Project-Specific Requirements
 
 ### Package Managers

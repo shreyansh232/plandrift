@@ -1,4 +1,4 @@
-"""Flight cost search using DuckDuckGo.
+"""Flight cost search using shared web search providers.
 
 Searches for average flight costs between origin and destination
 to provide a baseline estimate for the planning phase.
@@ -8,10 +8,9 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
 
-from ddgs import DDGS
+from app.agent.web_search import web_search
 
 logger = logging.getLogger(__name__)
-
 _executor = ThreadPoolExecutor(max_workers=1)
 
 
@@ -31,18 +30,21 @@ def search_flight_costs(
     try:
         current_year = datetime.now().year
         date_str = date_context if date_context else f"{current_year}"
-        query = f"round trip flight cost from {origin} to {destination} {date_str} price"
+        query = (
+            f"round trip flight cost from {origin} to {destination} {date_str} price"
+        )
         msg = f"[FLIGHT SEARCH] Searching: {query}"
         logger.info(msg)
         print(f"\n\033[94m{msg}\033[0m")  # Blue color for visibility
 
         def _run() -> list[dict]:
-            with DDGS() as ddgs:
-                # Text search for costs
-                return list(ddgs.text(query, max_results=4))
+            # Uses Tavily as primary provider and DDG as fallback.
+            return web_search(query, num_results=4)
 
         future = _executor.submit(_run)
         results = future.result(timeout=6)
+        if results and "error" in results[0]:
+            return ""
 
         if not results:
             return ""
@@ -51,7 +53,7 @@ def search_flight_costs(
         snippets = []
         for r in results:
             title = r.get("title", "")
-            body = r.get("body", "")
+            body = r.get("snippet", "")
             snippets.append(f"- {title}: {body}")
 
         summary = "\n".join(snippets)

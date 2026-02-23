@@ -8,10 +8,9 @@ from statistics import median
 from typing import Optional
 from urllib.parse import urlparse
 
-from ddgs import DDGS
+from app.agent.web_search import web_search
 
 logger = logging.getLogger(__name__)
-
 _executor = ThreadPoolExecutor(max_workers=1)
 
 _RUPEE_PREFIX_PATTERN = re.compile(
@@ -298,11 +297,13 @@ def search_train_costs(
         print(f"\n\033[94m{msg}\033[0m")
 
         def _run() -> list[dict]:
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, max_results=8))
+            # Uses Tavily as primary provider and DDG as fallback.
+            return web_search(query, num_results=8)
 
         future = _executor.submit(_run)
         results = future.result(timeout=6)
+        if results and "error" in results[0]:
+            results = []
         result["sources_scanned"] = len(results)
 
         if not results:
@@ -315,8 +316,8 @@ def search_train_costs(
         candidates: list[dict] = []
         for raw in results:
             title = (raw.get("title") or "").strip()
-            body = (raw.get("body") or "").strip()
-            href = (raw.get("href") or "").strip()
+            body = (raw.get("snippet") or "").strip()
+            href = (raw.get("url") or "").strip()
             domain = _extract_domain(href)
             combined_text = " ".join(part for part in (title, body) if part)
             candidates.append(

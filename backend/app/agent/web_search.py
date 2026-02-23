@@ -207,7 +207,7 @@ def web_search(query: str, num_results: int = 3) -> list[dict[str, str]]:
         List of search results with title, url, and snippet.
     """
     logger.info(f"[WEB SEARCH] Query: {query}")
-    num_results = min(num_results, 3)
+    num_results = min(num_results, 8)
 
     # Try Tavily first (primary)
     results = tavily_search(query, num_results)
